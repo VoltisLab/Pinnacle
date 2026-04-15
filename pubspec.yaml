@@ -1,0 +1,32 @@
+name: pinnacle
+description: Pinnacle — simple, elegant wireless file transfer for iPhone and Android.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  file_picker: ^8.1.2
+  google_fonts: ^6.2.1
+  http: ^1.2.2
+  intl: ^0.19.0
+  mobile_scanner: ^7.2.0
+  network_info_plus: ^6.0.1
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  permission_handler: ^11.3.1
+  qr_flutter: ^4.1.0
+  shelf: ^1.4.2
+  shelf_multipart: ^2.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
