@@ -50,6 +50,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_dartobservation._tcp</string>
+		<string>_pinnacle._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Pinnacle needs camera access to scan QR codes when connecting to a receiver.</string>

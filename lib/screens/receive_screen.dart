@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../services/local_address.dart';
+import '../services/pairing_bonjour.dart';
+import '../services/pinnacle_pairing_uri.dart';
 import '../services/transfer_server.dart';
 import '../widgets/mesh_gradient_background.dart';
 
@@ -17,26 +20,35 @@ class ReceiveScreen extends StatefulWidget {
 
 class _ReceiveScreenState extends State<ReceiveScreen> {
   final _server = TransferServer();
+  final _bonjour = PairingBonjourAdvertiser();
   bool _busy = false;
-  String? _ip;
-  String? _url;
+  String? _httpUrl;
+  String? _qrPayload;
+  String _pairCode = '';
   String? _savePathLabel;
 
   @override
   void dispose() {
+    unawaited(_bonjour.stop());
     unawaited(_server.stop());
     super.dispose();
+  }
+
+  String _makePairCode() {
+    return '${100000 + Random().nextInt(900000)}';
   }
 
   Future<void> _toggle() async {
     if (_server.isRunning) {
       setState(() => _busy = true);
+      await _bonjour.stop();
       await _server.stop();
       if (mounted) {
         setState(() {
           _busy = false;
-          _url = null;
-          _ip = null;
+          _httpUrl = null;
+          _qrPayload = null;
+          _pairCode = '';
         });
       }
       return;
@@ -46,15 +58,22 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
     try {
       await _server.start();
       final dir = await _server.receiveDirectory();
-      final ip = await localWifiIPv4();
+      final ip = await primaryLanIPv4();
+      final port = _server.port;
+      final code = _makePairCode();
+      final http = ip != null ? 'http://$ip:$port' : null;
+      final qr = http ?? buildPinnacleReceiveUri(port: port, pairCode: code);
+      await _bonjour.start(port: port, pairCode: code);
       if (!mounted) return;
       setState(() {
-        _ip = ip;
-        _url = ip != null ? 'http://$ip:${_server.port}' : null;
+        _httpUrl = http;
+        _qrPayload = qr;
+        _pairCode = code;
         _savePathLabel = dir.path;
         _busy = false;
       });
     } catch (e) {
+      await _bonjour.stop();
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -64,12 +83,21 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   }
 
   Future<void> _copyUrl() async {
-    final url = _url;
-    if (url == null) return;
-    await Clipboard.setData(ClipboardData(text: url));
+    final text = _httpUrl ?? _qrPayload;
+    if (text == null) return;
+    await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Address copied')),
+      const SnackBar(content: Text('Copied')),
+    );
+  }
+
+  Future<void> _copyCode() async {
+    if (_pairCode.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: _pairCode));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Pairing code copied')),
     );
   }
 
@@ -91,9 +119,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               children: [
                 const SizedBox(height: 8),
                 Text(
-                  listening
-                      ? 'Ready for files'
-                      : 'Start listening to accept transfers.',
+                  listening ? 'Ready for files' : 'Start listening to accept transfers.',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -101,24 +127,44 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                 const SizedBox(height: 8),
                 Text(
                   listening
-                      ? 'Senders can scan the code or enter the address manually.'
-                      : 'Files are saved privately in Documents/Pinnacle/Received.',
+                      ? 'Scan the QR, open the link, or enter the pairing code on the sender.'
+                      : 'Files are saved in Documents/Pinnacle/Received.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.65),
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 28),
+                if (listening && runningOnIosSimulator) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Simulator: use pairing code or paste the URL on the sender — '
+                    'the camera scanner is unavailable here.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.secondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
                 Expanded(
                   child: Center(
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 280),
                       child: !listening
-                          ? _IdleIllustration(theme: theme)
-                          : _ip == null || _url == null ? _NoWifi(theme: theme, port: _server.port)
-                              : _QrPanel(
-                                  url: _url!,
-                                  onCopy: _copyUrl,
+                          ? _IdleIllustration(key: const ValueKey('idle'), theme: theme)
+                          : _qrPayload == null
+                              ? const Center(
+                                  key: ValueKey('busy'),
+                                  child: CircularProgressIndicator(),
+                                )
+                              : _ReceivePanel(
+                                  key: ValueKey(_qrPayload),
+                                  theme: theme,
+                                  qrPayload: _qrPayload!,
+                                  httpUrl: _httpUrl,
+                                  pairCode: _pairCode,
+                                  onCopyUrl: _copyUrl,
+                                  onCopyCode: _copyCode,
                                 ),
                     ),
                   ),
@@ -149,7 +195,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
 }
 
 class _IdleIllustration extends StatelessWidget {
-  const _IdleIllustration({required this.theme});
+  const _IdleIllustration({super.key, required this.theme});
 
   final ThemeData theme;
 
@@ -165,7 +211,7 @@ class _IdleIllustration extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Text(
-          'Your QR will appear here',
+          'Your QR and pairing code will appear here',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: theme.colorScheme.onSurface.withOpacity(0.5),
           ),
@@ -175,50 +221,26 @@ class _IdleIllustration extends StatelessWidget {
   }
 }
 
-class _NoWifi extends StatelessWidget {
-  const _NoWifi({required this.theme, required this.port});
+class _ReceivePanel extends StatelessWidget {
+  const _ReceivePanel({
+    super.key,
+    required this.theme,
+    required this.qrPayload,
+    required this.httpUrl,
+    required this.pairCode,
+    required this.onCopyUrl,
+    required this.onCopyCode,
+  });
 
   final ThemeData theme;
-  final int port;
+  final String qrPayload;
+  final String? httpUrl;
+  final String pairCode;
+  final VoidCallback onCopyUrl;
+  final VoidCallback onCopyCode;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.wifi_off_rounded,
-            size: 56,
-            color: theme.colorScheme.secondary,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Could not read this device’s Wi‑Fi address. '
-            'Connect to Wi‑Fi, or share manually: port $port',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withOpacity(0.7),
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QrPanel extends StatelessWidget {
-  const _QrPanel({required this.url, required this.onCopy});
-
-  final String url;
-  final VoidCallback onCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -230,7 +252,7 @@ class _QrPanel extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: QrImageView(
-                data: url,
+                data: qrPayload,
                 version: QrVersions.auto,
                 gapless: true,
                 size: 220,
@@ -245,20 +267,57 @@ class _QrPanel extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          SelectableText(
-            url,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
+          const SizedBox(height: 16),
+          if (httpUrl != null)
+            SelectableText(
+              httpUrl!,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2,
+              ),
+              textAlign: TextAlign.center,
+            )
+          else
+            Text(
+              'Open Wi‑Fi for a direct link, or use the pairing code below.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.65),
+                height: 1.35,
+              ),
             ),
-            textAlign: TextAlign.center,
+          const SizedBox(height: 8),
+          Text(
+            'Pairing code',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.55),
+            ),
           ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: onCopy,
-            icon: const Icon(Icons.copy_rounded, size: 20),
-            label: const Text('Copy address'),
+          const SizedBox(height: 6),
+          SelectableText(
+            pairCode,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onCopyCode,
+                icon: const Icon(Icons.pin_rounded, size: 20),
+                label: const Text('Copy code'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onCopyUrl,
+                icon: const Icon(Icons.copy_rounded, size: 20),
+                label: Text(httpUrl != null ? 'Copy link' : 'Copy QR text'),
+              ),
+            ],
           ),
         ],
       ),
