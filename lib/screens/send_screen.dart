@@ -86,7 +86,14 @@ class _SendScreenState extends State<SendScreen> {
       MaterialPageRoute(builder: (_) => const QrScanScreen()),
     );
     if (raw == null || !mounted) return;
-    await _applyPayload(raw);
+    try {
+      await _applyPayload(raw);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not use scan: $e')),
+      );
+    }
   }
 
   Future<void> _applyPayload(String raw) async {
@@ -94,15 +101,37 @@ class _SendScreenState extends State<SendScreen> {
     final httpUrl = httpBaseUrlFromPayload(trimmed);
     if (httpUrl != null) {
       setState(() => _addressCtrl.text = httpUrl);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Receiver address filled — choose files, then Send.'),
+          ),
+        );
+      }
       return;
     }
     final pinnacle = parsePinnacleReceiveUri(trimmed);
     if (pinnacle != null) {
       setState(() => _pairCodeCtrl.text = pinnacle.code);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Looking for receiver on your Wi‑Fi…'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
       await _resolveFromPairingCode();
       return;
     }
     setState(() => _addressCtrl.text = _normalizeScanned(trimmed));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Address from QR filled — confirm it looks correct, then Send.'),
+        ),
+      );
+    }
   }
 
   String _normalizeScanned(String raw) {

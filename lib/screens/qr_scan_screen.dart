@@ -13,6 +13,16 @@ class QrScanScreen extends StatefulWidget {
   State<QrScanScreen> createState() => _QrScanScreenState();
 }
 
+String? _payloadFromBarcode(Barcode code) {
+  final r = code.rawValue?.trim();
+  if (r != null && r.isNotEmpty) return r;
+  final d = code.displayValue?.trim();
+  if (d != null && d.isNotEmpty) return d;
+  final u = code.url?.url.trim();
+  if (u != null && u.isNotEmpty) return u;
+  return null;
+}
+
 class _QrScanScreenState extends State<QrScanScreen> {
   MobileScannerController? _controller;
   bool _handled = false;
@@ -110,7 +120,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   onDetect: (capture) {
                     if (_handled) return;
                     for (final code in capture.barcodes) {
-                      final raw = code.rawValue;
+                      // ML Kit often leaves [rawValue] null for URL-style payloads;
+                      // use fallbacks so scanning a receive QR still works.
+                      final raw = _payloadFromBarcode(code);
                       if (raw == null || raw.isEmpty) continue;
                       _handled = true;
                       Navigator.of(context).pop<String>(raw);
