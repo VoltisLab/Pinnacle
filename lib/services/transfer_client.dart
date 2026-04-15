@@ -5,26 +5,50 @@ import 'package:path/path.dart' as p;
 
 class TransferClient {
   /// POSTs [filePath] to [baseUrl]/upload (multipart field `file`).
+  ///
+  /// [onProgress] reports [bytesSent], [bytesTotal], and smoothed [speedBytesPerSecond].
   static Future<int> sendFile(
     String baseUrl,
     String filePath, {
-    void Function(int sent, int total)? onProgress,
+    void Function(int bytesSent, int bytesTotal, double speedBytesPerSecond)?
+        onProgress,
   }) async {
     final uri = _uploadUri(baseUrl);
     final file = File(filePath);
     final length = await file.length();
     final request = http.MultipartRequest('POST', uri);
+
+    final sw = Stopwatch()..start();
+    var sent = 0;
+    var lastReportMs = 0;
+
+    Stream<List<int>> metered() async* {
+      await for (final chunk in file.openRead()) {
+        sent += chunk.length;
+        final now = sw.elapsedMilliseconds;
+        if (onProgress != null &&
+            (now - lastReportMs >= 100 || sent <= 16384)) {
+          lastReportMs = now;
+          onProgress(sent, length, _bps(sent, sw));
+        }
+        yield chunk;
+      }
+      if (onProgress != null) {
+        onProgress(sent, length, _bps(sent, sw));
+      }
+    }
+
     request.files.add(
-      await http.MultipartFile.fromPath(
+      http.MultipartFile(
         'file',
-        filePath,
+        metered(),
+        length,
         filename: p.basename(filePath),
       ),
     );
 
     if (onProgress != null) {
-      // Approximate: report full size when upload starts (stream progress needs custom tracking).
-      onProgress(0, length);
+      onProgress(0, length, 0);
     }
 
     final streamed = await request.send();
@@ -35,9 +59,15 @@ class TransferClient {
       );
     }
     if (onProgress != null) {
-      onProgress(length, length);
+      onProgress(length, length, _bps(length, sw));
     }
     return streamed.statusCode;
+  }
+
+  static double _bps(int bytes, Stopwatch sw) {
+    final sec = sw.elapsedMicroseconds / 1000000.0;
+    if (sec < 0.0001) return 0;
+    return bytes / sec;
   }
 
   static Uri _uploadUri(String raw) {

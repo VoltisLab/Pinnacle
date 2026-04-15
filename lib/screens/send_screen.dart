@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -7,8 +9,10 @@ import '../services/local_address.dart';
 import '../services/pairing_bonjour.dart';
 import '../services/pinnacle_google_auth.dart';
 import '../services/pinnacle_pairing_uri.dart';
+import '../models/transfer_ui_state.dart';
 import '../services/transfer_client.dart';
 import '../widgets/mesh_gradient_background.dart';
+import '../widgets/transfer_progress_cards.dart';
 import 'qr_scan_screen.dart';
 
 class SendScreen extends StatefulWidget {
@@ -25,6 +29,7 @@ class _SendScreenState extends State<SendScreen> {
   bool _sending = false;
   bool _resolving = false;
   String? _googleEmail;
+  SenderUploadProgress? _uploadProgress;
 
   @override
   void dispose() {
@@ -255,7 +260,40 @@ class _SendScreenState extends State<SendScreen> {
         if (path == null) {
           throw TransferException('Could not read "${f.name}" (try picking again).');
         }
-        await TransferClient.sendFile(base, path);
+        var total = f.size;
+        if (total <= 0) {
+          try {
+            total = await File(path).length();
+          } catch (_) {
+            total = 1;
+          }
+        }
+        if (total <= 0) total = 1;
+        if (mounted) {
+          setState(() {
+            _uploadProgress = SenderUploadProgress(
+              fileName: f.name,
+              bytesSent: 0,
+              bytesTotal: total,
+              speedBytesPerSecond: 0,
+            );
+          });
+        }
+        await TransferClient.sendFile(
+          base,
+          path,
+          onProgress: (sent, tot, bps) {
+            if (!mounted) return;
+            setState(() {
+              _uploadProgress = SenderUploadProgress(
+                fileName: f.name,
+                bytesSent: sent,
+                bytesTotal: tot,
+                speedBytesPerSecond: bps,
+              );
+            });
+          },
+        );
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -270,7 +308,12 @@ class _SendScreenState extends State<SendScreen> {
         SnackBar(content: Text('Something went wrong: $e')),
       );
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _uploadProgress = null;
+        });
+      }
     }
   }
 
@@ -436,6 +479,8 @@ class _SendScreenState extends State<SendScreen> {
                   ),
                 ),
               const SizedBox(height: 12),
+              if (_uploadProgress != null)
+                SenderUploadBanner(progress: _uploadProgress!),
               FilledButton(
                 onPressed: _sending ? null : _sendAll,
                 child: _sending

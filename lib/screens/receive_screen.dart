@@ -8,8 +8,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../services/local_address.dart';
 import '../services/pairing_bonjour.dart';
 import '../services/pinnacle_pairing_uri.dart';
+import '../models/transfer_ui_state.dart';
 import '../services/transfer_server.dart';
 import '../widgets/mesh_gradient_background.dart';
+import '../widgets/transfer_progress_cards.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({super.key});
@@ -18,7 +20,8 @@ class ReceiveScreen extends StatefulWidget {
   State<ReceiveScreen> createState() => _ReceiveScreenState();
 }
 
-class _ReceiveScreenState extends State<ReceiveScreen> {
+class _ReceiveScreenState extends State<ReceiveScreen>
+    with SingleTickerProviderStateMixin {
   final _server = TransferServer();
   final _bonjour = PairingBonjourAdvertiser();
   bool _busy = false;
@@ -26,9 +29,39 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   String? _qrPayload;
   String _pairCode = '';
   String? _savePathLabel;
+  late final AnimationController _waitTurn;
+
+  @override
+  void initState() {
+    super.initState();
+    _waitTurn = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    );
+    _server.receiveUi.addListener(_onReceiveUiChanged);
+  }
+
+  void _onReceiveUiChanged() {
+    _syncWaitRotation();
+  }
+
+  void _syncWaitRotation() {
+    final v = _server.receiveUi.value;
+    if (_server.isRunning && v is ReceiverWaiting) {
+      if (!_waitTurn.isAnimating) {
+        _waitTurn.repeat();
+      }
+    } else {
+      _waitTurn
+        ..stop()
+        ..reset();
+    }
+  }
 
   @override
   void dispose() {
+    _server.receiveUi.removeListener(_onReceiveUiChanged);
+    _waitTurn.dispose();
     unawaited(_bonjour.stop());
     unawaited(_server.stop());
     super.dispose();
@@ -50,6 +83,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
           _qrPayload = null;
           _pairCode = '';
         });
+        _syncWaitRotation();
       }
       return;
     }
@@ -72,6 +106,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
         _savePathLabel = dir.path;
         _busy = false;
       });
+      _syncWaitRotation();
     } catch (e) {
       await _bonjour.stop();
       if (!mounted) return;
@@ -147,26 +182,48 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                 ],
                 const SizedBox(height: 20),
                 Expanded(
-                  child: Center(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 280),
-                      child: !listening
-                          ? _IdleIllustration(key: const ValueKey('idle'), theme: theme)
-                          : _qrPayload == null
-                              ? const Center(
-                                  key: ValueKey('busy'),
-                                  child: CircularProgressIndicator(),
-                                )
-                              : _ReceivePanel(
-                                  key: ValueKey(_qrPayload),
-                                  theme: theme,
-                                  qrPayload: _qrPayload!,
-                                  httpUrl: _httpUrl,
-                                  pairCode: _pairCode,
-                                  onCopyUrl: _copyUrl,
-                                  onCopyCode: _copyCode,
-                                ),
-                    ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 280),
+                    child: !listening
+                        ? Center(
+                            key: const ValueKey('idle'),
+                            child: _IdleIllustration(theme: theme),
+                          )
+                        : _qrPayload == null
+                            ? const Center(
+                                key: ValueKey('busy'),
+                                child: CircularProgressIndicator(),
+                              )
+                            : Column(
+                                key: ValueKey(_qrPayload),
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  ValueListenableBuilder<ReceiverTransferUi>(
+                                    valueListenable: _server.receiveUi,
+                                    builder: (context, ui, _) {
+                                      if (ui is ReceiverReceiving) {
+                                        return ReceiverReceivingBanner(state: ui);
+                                      }
+                                      return ReceiverWaitingBanner(
+                                        rotation: _waitTurn,
+                                      );
+                                    },
+                                  ),
+                                  Expanded(
+                                    child: SingleChildScrollView(
+                                      child: _ReceivePanel(
+                                        theme: theme,
+                                        qrPayload: _qrPayload!,
+                                        httpUrl: _httpUrl,
+                                        pairCode: _pairCode,
+                                        onCopyUrl: _copyUrl,
+                                        onCopyCode: _copyCode,
+                                        qrSize: 188,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                   ),
                 ),
                 if (_savePathLabel != null)
@@ -195,7 +252,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
 }
 
 class _IdleIllustration extends StatelessWidget {
-  const _IdleIllustration({super.key, required this.theme});
+  const _IdleIllustration({required this.theme});
 
   final ThemeData theme;
 
@@ -223,13 +280,13 @@ class _IdleIllustration extends StatelessWidget {
 
 class _ReceivePanel extends StatelessWidget {
   const _ReceivePanel({
-    super.key,
     required this.theme,
     required this.qrPayload,
     required this.httpUrl,
     required this.pairCode,
     required this.onCopyUrl,
     required this.onCopyCode,
+    this.qrSize = 220,
   });
 
   final ThemeData theme;
@@ -238,6 +295,7 @@ class _ReceivePanel extends StatelessWidget {
   final String pairCode;
   final VoidCallback onCopyUrl;
   final VoidCallback onCopyCode;
+  final double qrSize;
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +313,7 @@ class _ReceivePanel extends StatelessWidget {
                 data: qrPayload,
                 version: QrVersions.auto,
                 gapless: true,
-                size: 220,
+                size: qrSize,
                 eyeStyle: const QrEyeStyle(
                   eyeShape: QrEyeShape.square,
                   color: Color(0xFF0B0B0D),
