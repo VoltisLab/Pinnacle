@@ -51,18 +51,27 @@ class _ReceiveScreenState extends State<ReceiveScreen>
   }
 
   void _onReceiveUiChanged() {
+    if (!mounted) return;
     _syncWaitRotation();
     final ui = _server.receiveUi.value;
     if (_server.isRunning &&
         (ui is ReceiverReceiving || ui is ReceiverConnected)) {
       if (_hapticArmedForSession) {
         _hapticArmedForSession = false;
-        HapticFeedback.mediumImpact();
+        _safeHaptic();
       }
-      if (!_hideQrForSession && mounted) {
+      if (!_hideQrForSession) {
         setState(() => _hideQrForSession = true);
       }
     }
+  }
+
+  void _safeHaptic() {
+    // HapticFeedback has no implementation on Windows / Linux and in some
+    // Flutter versions throws a MissingPluginException through an
+    // unawaited Future. Mobile-only and fire-and-forget is plenty.
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
+    HapticFeedback.mediumImpact().catchError((_) {});
   }
 
   void _syncWaitRotation() {
@@ -106,7 +115,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     await _bonjour.stop();
     await _server.stop();
     if (mounted) {
-      HapticFeedback.mediumImpact();
+      _safeHaptic();
       setState(() {
         _busy = false;
         _httpUrl = null;
@@ -472,3 +481,4 @@ class _ReceivePanel extends StatelessWidget {
     );
   }
 }
+

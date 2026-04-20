@@ -203,7 +203,7 @@ class _SendScreenState extends State<SendScreen> {
         _peerLabel = label;
         _connected = true;
       });
-      HapticFeedback.mediumImpact();
+      _safeHaptic();
       // Celebrate! The receiver is showing its own tick right now too.
       unawaitedShow(
         ConnectedTickDialog.show(
@@ -249,7 +249,7 @@ class _SendScreenState extends State<SendScreen> {
       await TransferClient.disconnect(url);
     }
     if (!mounted) return;
-    HapticFeedback.mediumImpact();
+    _safeHaptic();
     setState(() {
       _connected = false;
       _baseUrl = null;
@@ -494,6 +494,14 @@ class _SendScreenState extends State<SendScreen> {
 /// branch without blocking the caller. We don't care about its return.
 void unawaitedShow(Future<void> future) {
   future.catchError((_) {});
+}
+
+/// Haptics are a mobile-only nicety. Calling them on Windows / Linux has
+/// no effect in Flutter's embedder and can surface as a noisy unawaited
+/// error — so guard the platform and swallow any Future failure.
+void _safeHaptic() {
+  if (!(Platform.isAndroid || Platform.isIOS)) return;
+  HapticFeedback.mediumImpact().catchError((_) {});
 }
 
 /// Tan filled controls on the warm cream canvas (light mode only).

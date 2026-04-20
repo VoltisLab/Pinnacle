@@ -38,14 +38,25 @@ class TransferServer {
 
   String? _peerLabel;
 
+  // HTTP handlers call these from an async request context. We publish the
+  // new UI state via a microtask so the widget-tree rebuild triggered by
+  // our ValueNotifier listeners never runs *inside* the handler's call
+  // stack. On Windows this matters — synchronously swapping out the QR /
+  // waiting banner from a shelf handler was crashing Skia mid-frame.
+  void _publish(ReceiverTransferUi next) {
+    scheduleMicrotask(() {
+      receiveUi.value = next;
+    });
+  }
+
   void _emitWaitingConnection() {
     _peerLabel = null;
-    receiveUi.value = const ReceiverWaitingConnection();
+    _publish(const ReceiverWaitingConnection());
   }
 
   void _emitConnected({String? peerLabel}) {
     _peerLabel = peerLabel ?? _peerLabel ?? 'sender';
-    receiveUi.value = ReceiverConnected(peerLabel: _peerLabel);
+    _publish(ReceiverConnected(peerLabel: _peerLabel));
   }
 
   void _emitReceiving(
@@ -65,14 +76,14 @@ class TransferServer {
         sessionBytesBeforeThisFile != null) {
       sessionReceived = sessionBytesBeforeThisFile + received;
     }
-    receiveUi.value = ReceiverReceiving(
+    _publish(ReceiverReceiving(
       fileName: fileName,
       bytesReceived: received,
       bytesTotal: total,
       speedBytesPerSecond: bps,
       sessionBytesReceived: sessionReceived,
       sessionBytesTotal: sessionBytesTotal,
-    );
+    ));
   }
 
   /// Receiver UI: drop the linked sender (same as `POST /disconnect`).
