@@ -13,18 +13,23 @@ enum CameraPermissionResult {
   unsupported,
 }
 
-/// Ensures we have camera permission on the platforms that need it. On
-/// desktop & web the plugin isn't registered and no camera is available,
-/// so we short-circuit to [CameraPermissionResult.unsupported].
+/// Ensures we have camera permission on the platforms that need it.
+///
+/// On iOS in particular, [Permission.camera.status] is frequently stale:
+/// if the user previously denied and then re-enabled camera access in
+/// Settings, `.status` can keep returning `permanentlyDenied` until a
+/// `.request()` call refreshes it. So we always call `.request()` (which
+/// is a no-op that just returns `granted` when access is already allowed)
+/// and trust that result — no more "already enabled? then why is it
+/// telling me to open Settings?" bugs.
 Future<CameraPermissionResult> ensureCameraPermission() async {
   if (!(Platform.isAndroid || Platform.isIOS)) {
     return CameraPermissionResult.unsupported;
   }
-  var status = await Permission.camera.status;
-  if (!status.isGranted) {
-    status = await Permission.camera.request();
+  final status = await Permission.camera.request();
+  if (status.isGranted || status.isLimited) {
+    return CameraPermissionResult.granted;
   }
-  if (status.isGranted) return CameraPermissionResult.granted;
   if (status.isPermanentlyDenied) {
     return CameraPermissionResult.permanentlyDenied;
   }

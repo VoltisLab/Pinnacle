@@ -1,35 +1,100 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 class TransferClient {
-  /// POSTs [filePath] to [baseUrl]/upload (multipart field `file`).
+  /// Calls `POST /connect` on the receiver to confirm the pair handshake.
+  /// Returns a short peer label supplied by the receiver on success.
+  /// Throws [TransferException] on network errors or non-2xx responses.
+  static Future<String> connect(String baseUrl) async {
+    final uri = _endpointUri(baseUrl, '/connect');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    try {
+      final req = await client.postUrl(uri);
+      req.headers.contentLength = 0;
+      req.headers.contentType = ContentType.json;
+      final resp = await req.close().timeout(const Duration(seconds: 8));
+      final body = await resp.transform(utf8.decoder).join();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw TransferException(
+          'Connect failed (${resp.statusCode}) at $uri.',
+        );
+      }
+      try {
+        final j = jsonDecode(body) as Map<String, dynamic>;
+        return (j['peer'] as String?) ?? 'receiver';
+      } catch (_) {
+        return 'receiver';
+      }
+    } on SocketException catch (e) {
+      throw TransferException('Could not reach the receiver: ${e.message}');
+    } on TimeoutException {
+      throw TransferException(
+        'The receiver didn\'t respond in time. Is it still listening on the same Wi‑Fi?',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Best-effort `POST /disconnect`. Failures are swallowed — the sender's
+  /// UI should still reset locally even if the receiver has gone away.
+  static Future<void> disconnect(String baseUrl) async {
+    final uri = _endpointUri(baseUrl, '/disconnect');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    try {
+      final req = await client.postUrl(uri);
+      req.headers.contentLength = 0;
+      final resp = await req.close().timeout(const Duration(seconds: 4));
+      await resp.drain<void>();
+    } catch (_) {
+      // Disconnect is advisory — ignore.
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Streams [filePath] to the receiver's fast raw endpoint.
   ///
-  /// [onProgress] reports [bytesSent], [bytesTotal], and smoothed [speedBytesPerSecond].
+  /// [onProgress] reports bytes sent / total and smoothed bytes/sec. Uses
+  /// `POST /upload-raw` with:
+  ///   * `Content-Length`         — file size
+  ///   * `Content-Type`           — `application/octet-stream`
+  ///   * `X-Pinnacle-Filename`    — URI-encoded original basename
+  ///
+  /// Dramatically faster than multipart because there's no boundary
+  /// framing overhead and each chunk goes straight to the socket.
   static Future<int> sendFile(
     String baseUrl,
     String filePath, {
     void Function(int bytesSent, int bytesTotal, double speedBytesPerSecond)?
         onProgress,
   }) async {
-    final uri = _uploadUri(baseUrl);
+    final uri = _endpointUri(baseUrl, '/upload-raw');
     final file = File(filePath);
     final length = await file.length();
-    final request = http.MultipartRequest('POST', uri);
+    final name = p.basename(filePath);
 
     final sw = Stopwatch()..start();
     var sent = 0;
     var lastReportMs = 0;
 
+    // [file.openRead] hands us 64 KB-ish chunks already; just forward
+    // them straight to the socket. The speed wins come from (a) dropping
+    // multipart framing, (b) `bufferOutput = false`, and (c) setting an
+    // explicit `Content-Length` so the HttpClient doesn't fall back to
+    // chunked transfer-encoding, which halves LAN throughput in practice.
     Stream<List<int>> metered() async* {
       await for (final chunk in file.openRead()) {
         sent += chunk.length;
-        final now = sw.elapsedMilliseconds;
-        if (onProgress != null &&
-            (now - lastReportMs >= 100 || sent <= 16384)) {
-          lastReportMs = now;
-          onProgress(sent, length, _bps(sent, sw));
+        if (onProgress != null) {
+          final now = sw.elapsedMilliseconds;
+          if (now - lastReportMs >= 100 || sent <= 65536) {
+            lastReportMs = now;
+            onProgress(sent, length, _bps(sent, sw));
+          }
         }
         yield chunk;
       }
@@ -38,41 +103,108 @@ class TransferClient {
       }
     }
 
-    request.files.add(
-      http.MultipartFile(
-        'file',
-        metered(),
-        length,
-        filename: p.basename(filePath),
-      ),
-    );
+    if (onProgress != null) onProgress(0, length, 0);
 
-    if (onProgress != null) {
-      onProgress(0, length, 0);
-    }
-
-    final streamed = await request.send();
-    final body = await streamed.stream.bytesToString();
-    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      // 404 here almost always means the sender is pointed at the wrong host
-      // (e.g. a router admin page or DNS-search-suffix mismatch), not that
-      // Pinnacle rejected the upload — surface the URL so that's obvious.
-      if (streamed.statusCode == 404) {
+    final client = HttpClient();
+    try {
+      final req = await client.postUrl(uri);
+      req.headers.contentType = ContentType('application', 'octet-stream');
+      req.headers.contentLength = length;
+      req.headers.set(
+        'X-Pinnacle-Filename',
+        Uri.encodeComponent(name),
+      );
+      req.bufferOutput = false;
+      await req.addStream(metered());
+      final resp = await req.close();
+      final body = await resp.transform(utf8.decoder).join();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        if (resp.statusCode == 404) {
+          // Receiver is a Pinnacle we can't speak raw to — the remote
+          // app may be older than v2. Fall back to multipart.
+          return _sendMultipart(
+            baseUrl,
+            filePath,
+            onProgress: onProgress,
+          );
+        }
+        final snippet = body.length > 200 ? '${body.substring(0, 200)}…' : body;
         throw TransferException(
-          'Receiver not found at $uri (HTTP 404). '
-          'Make sure Pinnacle is listening on the other device and both are on the same Wi‑Fi. '
-          'Try scanning the QR again or restarting the receiver.',
+          'Upload failed (${resp.statusCode}) at $uri: $snippet',
         );
       }
-      final snippet = body.length > 200 ? '${body.substring(0, 200)}…' : body;
-      throw TransferException(
-        'Upload failed (${streamed.statusCode}) at $uri: $snippet',
-      );
+      if (onProgress != null) onProgress(length, length, _bps(length, sw));
+      return resp.statusCode;
+    } on SocketException catch (e) {
+      throw TransferException('Connection lost: ${e.message}');
+    } finally {
+      client.close(force: true);
     }
-    if (onProgress != null) {
-      onProgress(length, length, _bps(length, sw));
+  }
+
+  /// Multipart fallback (old servers). Retains the previous wire format.
+  static Future<int> _sendMultipart(
+    String baseUrl,
+    String filePath, {
+    void Function(int, int, double)? onProgress,
+  }) async {
+    final uri = _endpointUri(baseUrl, '/upload');
+    final file = File(filePath);
+    final length = await file.length();
+    final name = p.basename(filePath);
+    final boundary =
+        '----PinnacleBoundary${DateTime.now().microsecondsSinceEpoch}';
+    final header = utf8.encode(
+      '--$boundary\r\n'
+      'Content-Disposition: form-data; name="file"; filename="$name"\r\n'
+      'Content-Type: application/octet-stream\r\n'
+      'Content-Length: $length\r\n\r\n',
+    );
+    final footer = utf8.encode('\r\n--$boundary--\r\n');
+    final totalLen = header.length + length + footer.length;
+
+    final sw = Stopwatch()..start();
+    var sent = 0;
+    var lastMs = 0;
+
+    Stream<List<int>> body() async* {
+      yield header;
+      await for (final chunk in file.openRead()) {
+        sent += chunk.length;
+        if (onProgress != null) {
+          final now = sw.elapsedMilliseconds;
+          if (now - lastMs >= 100 || sent <= 65536) {
+            lastMs = now;
+            onProgress(sent, length, _bps(sent, sw));
+          }
+        }
+        yield chunk;
+      }
+      yield footer;
     }
-    return streamed.statusCode;
+
+    if (onProgress != null) onProgress(0, length, 0);
+
+    final client = HttpClient();
+    try {
+      final req = await client.postUrl(uri);
+      req.headers.contentType =
+          ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
+      req.headers.contentLength = totalLen;
+      req.bufferOutput = false;
+      await req.addStream(body());
+      final resp = await req.close();
+      final bodyStr = await resp.transform(utf8.decoder).join();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw TransferException(
+          'Upload failed (${resp.statusCode}) at $uri: $bodyStr',
+        );
+      }
+      if (onProgress != null) onProgress(length, length, _bps(length, sw));
+      return resp.statusCode;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   static double _bps(int bytes, Stopwatch sw) {
@@ -81,7 +213,7 @@ class TransferClient {
     return bytes / sec;
   }
 
-  static Uri _uploadUri(String raw) {
+  static Uri _endpointUri(String raw, String path) {
     var trimmed = raw.trim();
     if (trimmed.isEmpty) {
       throw TransferException('Enter a receive address or scan a QR code.');
@@ -98,7 +230,7 @@ class TransferClient {
       userInfo: base.userInfo.isEmpty ? null : base.userInfo,
       host: base.host,
       port: base.hasPort ? base.port : null,
-      path: '/upload',
+      path: path,
     );
   }
 }

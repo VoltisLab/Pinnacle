@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,6 +14,7 @@ class AppSettings extends ChangeNotifier {
   static const _kAccountEmail = 'pinnacle.accountEmail';
   static const _kNotifyOnReceive = 'pinnacle.notifyOnReceive';
   static const _kAutoStartReceive = 'pinnacle.autoStartReceive';
+  static const _kAlwaysOnTop = 'pinnacle.alwaysOnTop';
 
   final SharedPreferences _prefs;
 
@@ -84,6 +84,13 @@ class AppSettings extends ChangeNotifier {
   bool get autoStartReceive => _prefs.getBool(_kAutoStartReceive) ?? false;
   Future<void> setAutoStartReceive(bool value) async {
     await _prefs.setBool(_kAutoStartReceive, value);
+    notifyListeners();
+  }
+
+  /// Desktop-only: keep the Pinnacle window above other apps.
+  bool get alwaysOnTop => _prefs.getBool(_kAlwaysOnTop) ?? false;
+  Future<void> setAlwaysOnTop(bool value) async {
+    await _prefs.setBool(_kAlwaysOnTop, value);
     notifyListeners();
   }
 }

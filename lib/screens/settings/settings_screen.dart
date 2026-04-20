@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
+import '../../services/desktop_window.dart';
 import '../../state/app_settings.dart';
 import '../../widgets/mesh_gradient_background.dart';
 import 'about_screen.dart';
@@ -9,6 +10,7 @@ import 'account_screen.dart';
 import 'appearance_screen.dart';
 import 'notifications_screen.dart';
 import 'save_location_screen.dart';
+import 'window_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -57,6 +59,18 @@ class SettingsScreen extends StatelessWidget {
               subtitle: _themeLabel(settings.themeMode),
               onTap: () => _push(context, const AppearanceScreen()),
             ),
+            if (isDesktop) ...[
+              const SizedBox(height: 18),
+              const _SectionHeader(title: 'Window'),
+              _SettingsTile(
+                icon: Icons.push_pin_rounded,
+                title: 'Window',
+                subtitle: settings.alwaysOnTop
+                    ? 'Always on top'
+                    : 'Default behaviour · fixed square',
+                onTap: () => _push(context, const WindowScreen()),
+              ),
+            ],
             const SizedBox(height: 18),
             const _SectionHeader(title: 'About'),
             _SettingsTile(

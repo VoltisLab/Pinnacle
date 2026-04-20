@@ -3,17 +3,18 @@ sealed class ReceiverTransferUi {
   const ReceiverTransferUi();
 }
 
-/// Server on, no active upload body being read.
-final class ReceiverWaiting extends ReceiverTransferUi {
-  const ReceiverWaiting() : super();
+/// Server on, no peer connected. Shown as "Waiting for connection".
+final class ReceiverWaitingConnection extends ReceiverTransferUi {
+  const ReceiverWaitingConnection() : super();
 }
 
-/// A sender has opened a connection (upload request arrived) but bytes have
-/// not yet started flowing. Shown briefly as a "handshake" animation before
-/// transitioning to [ReceiverReceiving] on the first chunk.
+/// Sender has completed the pair handshake (`POST /connect`) and is
+/// waiting to pick files. Shown as "Connected" + waiting-for-files
+/// animation. [peerLabel] is a short, human-friendly identifier for the
+/// linked sender (e.g. "iPhone" or the last IP octet) when we have it.
 final class ReceiverConnected extends ReceiverTransferUi {
-  const ReceiverConnected({required this.fileName}) : super();
-  final String fileName;
+  const ReceiverConnected({this.peerLabel}) : super();
+  final String? peerLabel;
 }
 
 /// Streaming a file from the sender.

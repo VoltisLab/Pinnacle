@@ -72,9 +72,10 @@ class SenderUploadBanner extends StatelessWidget {
   }
 }
 
-/// Receiver: waiting for first byte of an upload.
-class ReceiverWaitingBanner extends StatelessWidget {
-  const ReceiverWaitingBanner({
+/// Receiver: server on, no peer connected yet.
+/// "Waiting for connection".
+class ReceiverWaitingConnectionBanner extends StatelessWidget {
+  const ReceiverWaitingConnectionBanner({
     super.key,
     required this.rotation,
   });
@@ -93,7 +94,7 @@ class ReceiverWaitingBanner extends StatelessWidget {
             RotationTransition(
               turns: rotation,
               child: Icon(
-                Icons.download_rounded,
+                Icons.wifi_find_rounded,
                 size: 40,
                 color: theme.colorScheme.primary,
               ),
@@ -104,14 +105,14 @@ class ReceiverWaitingBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Waiting for files',
+                    'Waiting for connection',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Keep this screen open. The sender should pick files and tap Send.',
+                    'Share the QR or pairing code with the sender, then tap Connect on their device.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withOpacity(0.65),
                       height: 1.35,
@@ -137,11 +138,12 @@ class ReceiverWaitingBanner extends StatelessWidget {
   }
 }
 
-/// Receiver: sender just linked up, bytes haven't started yet.
+/// Receiver: pair handshake complete, waiting for files.
+/// "Connected" + waiting-for-files animation.
 class ReceiverConnectedBanner extends StatefulWidget {
-  const ReceiverConnectedBanner({super.key, required this.fileName});
+  const ReceiverConnectedBanner({super.key, this.peerLabel});
 
-  final String fileName;
+  final String? peerLabel;
 
   @override
   State<ReceiverConnectedBanner> createState() =>
@@ -152,7 +154,7 @@ class _ReceiverConnectedBannerState extends State<ReceiverConnectedBanner>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 900),
+    duration: const Duration(milliseconds: 1100),
   )..repeat(reverse: true);
 
   @override
@@ -167,14 +169,14 @@ class _ReceiverConnectedBannerState extends State<ReceiverConnectedBanner>
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
         child: Row(
           children: [
             AnimatedBuilder(
               animation: _pulse,
               builder: (context, _) {
                 final t = Curves.easeInOut.transform(_pulse.value);
-                final scale = 1.0 + 0.14 * t;
+                final scale = 1.0 + 0.16 * t;
                 return Stack(
                   alignment: Alignment.center,
                   children: [
@@ -191,8 +193,8 @@ class _ReceiverConnectedBannerState extends State<ReceiverConnectedBanner>
                       ),
                     ),
                     Icon(
-                      Icons.check_rounded,
-                      size: 32,
+                      Icons.check_circle_rounded,
+                      size: 36,
                       color: theme.colorScheme.primary,
                     ),
                   ],
@@ -204,20 +206,45 @@ class _ReceiverConnectedBannerState extends State<ReceiverConnectedBanner>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Connected',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        'Connected',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (widget.peerLabel != null) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '· ${widget.peerLabel}',
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withOpacity(0.55),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Sender linked. Preparing ${widget.fileName}…',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    'Waiting for files. The sender can pick files now.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withOpacity(0.65),
                       height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      minHeight: 6,
+                      value: null,
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest
+                          .withOpacity(0.5),
                     ),
                   ),
                 ],
