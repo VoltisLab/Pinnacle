@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../state/app_settings.dart';
 import '../widgets/mesh_gradient_background.dart';
 import 'receive_screen.dart';
 import 'send_screen.dart';
+import 'settings/settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -10,6 +12,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final settings = AppSettingsScope.of(context);
 
     return MeshGradientBackground(
       child: Scaffold(
@@ -19,23 +22,40 @@ class HomeScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 28),
-                Text(
-                  'Pinnacle',
-                  style: theme.textTheme.displaySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.8,
-                  ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Pinnacle',
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.8,
+                        ),
+                      ),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: 'Settings',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SettingsScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.settings_rounded),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Wireless transfer between devices on the same network.',
+                  settings.isSignedIn
+                      ? 'Signed in as ${settings.accountEmail}.'
+                      : 'Wireless transfer between devices on the same network.',
                   style: theme.textTheme.bodyLarge?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.72),
                     height: 1.35,
                   ),
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 36),
                 Expanded(
                   child: Column(
                     children: [

@@ -25,6 +25,9 @@ class MainActivity : FlutterActivity() {
                         val displayName = call.argument<String>("displayName")
                         val mime = call.argument<String>("mime")
                             ?: "application/octet-stream"
+                        val folder = sanitizeFolder(
+                            call.argument<String>("folder") ?: "Pinnacle",
+                        )
                         if (sourcePath == null || displayName == null) {
                             result.error(
                                 "ARG",
@@ -38,6 +41,7 @@ class MainActivity : FlutterActivity() {
                                 sourcePath,
                                 displayName,
                                 mime,
+                                folder,
                             )
                             result.success(published)
                         } catch (e: Exception) {
@@ -45,14 +49,17 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "downloadsLabel" -> {
-                        result.success("Downloads / Pinnacle")
+                        val folder = sanitizeFolder(
+                            call.argument<String>("folder") ?: "Pinnacle",
+                        )
+                        result.success("Downloads / $folder")
                     }
                     else -> result.notImplemented()
                 }
             }
     }
 
-    /// Copies [sourcePath] into the user-visible Downloads/Pinnacle folder.
+    /// Copies [sourcePath] into the user-visible Downloads/<folder> folder.
     /// On API 29+ this uses MediaStore (no permissions required, no
     /// scoped-storage issues). On older Android it writes directly to the
     /// public Downloads directory using the legacy storage API.
@@ -61,14 +68,15 @@ class MainActivity : FlutterActivity() {
         sourcePath: String,
         displayName: String,
         mime: String,
+        folder: String,
     ): Map<String, String?> {
         val src = File(sourcePath)
         if (!src.exists()) throw IOException("Source file missing: $sourcePath")
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            publishViaMediaStore(src, displayName, mime)
+            publishViaMediaStore(src, displayName, mime, folder)
         } else {
-            publishLegacy(src, displayName)
+            publishLegacy(src, displayName, folder)
         }
     }
 
@@ -76,6 +84,7 @@ class MainActivity : FlutterActivity() {
         src: File,
         displayName: String,
         mime: String,
+        folder: String,
     ): Map<String, String?> {
         val resolver = contentResolver
         val values = ContentValues().apply {
@@ -83,7 +92,7 @@ class MainActivity : FlutterActivity() {
             put(MediaStore.Downloads.MIME_TYPE, mime)
             put(
                 MediaStore.Downloads.RELATIVE_PATH,
-                Environment.DIRECTORY_DOWNLOADS + "/Pinnacle",
+                Environment.DIRECTORY_DOWNLOADS + "/" + folder,
             )
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
@@ -119,20 +128,21 @@ class MainActivity : FlutterActivity() {
 
         return mapOf(
             "uri" to uri.toString(),
-            "displayLabel" to "Downloads / Pinnacle / $displayName",
-            "directoryLabel" to "Downloads / Pinnacle",
+            "displayLabel" to "Downloads / $folder / $displayName",
+            "directoryLabel" to "Downloads / $folder",
         )
     }
 
     private fun publishLegacy(
         src: File,
         displayName: String,
+        folder: String,
     ): Map<String, String?> {
         @Suppress("DEPRECATION")
         val downloads = Environment.getExternalStoragePublicDirectory(
             Environment.DIRECTORY_DOWNLOADS,
         )
-        val dir = File(downloads, "Pinnacle")
+        val dir = File(downloads, folder)
         if (!dir.exists() && !dir.mkdirs()) {
             throw IOException("Cannot create ${dir.absolutePath}")
         }
@@ -145,9 +155,16 @@ class MainActivity : FlutterActivity() {
         try { src.delete() } catch (_: Exception) {}
         return mapOf(
             "uri" to Uri.fromFile(target).toString(),
-            "displayLabel" to "Downloads / Pinnacle / ${target.name}",
-            "directoryLabel" to "Downloads / Pinnacle",
+            "displayLabel" to "Downloads / $folder / ${target.name}",
+            "directoryLabel" to "Downloads / $folder",
         )
+    }
+
+    private fun sanitizeFolder(raw: String): String {
+        val trimmed = raw.trim()
+            .replace(Regex("[\\\\/:*?\"<>|]"), "")
+            .replace(Regex("\\s+"), " ")
+        return if (trimmed.isBlank()) "Pinnacle" else trimmed
     }
 
     private fun uniqueFile(dir: File, name: String): File {

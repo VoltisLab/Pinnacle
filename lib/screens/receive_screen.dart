@@ -11,8 +11,10 @@ import '../services/pairing_bonjour.dart';
 import '../services/pinnacle_pairing_uri.dart';
 import '../models/transfer_ui_state.dart';
 import '../services/transfer_server.dart';
+import '../state/app_settings.dart';
 import '../widgets/mesh_gradient_background.dart';
 import '../widgets/transfer_progress_cards.dart';
+import 'settings/save_location_screen.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({super.key});
@@ -30,6 +32,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
   String? _qrPayload;
   String _pairCode = '';
   String? _savePathLabel;
+  AppSettings? _settings;
   late final AnimationController _waitTurn;
 
   @override
@@ -40,6 +43,35 @@ class _ReceiveScreenState extends State<ReceiveScreen>
       duration: const Duration(seconds: 3),
     );
     _server.receiveUi.addListener(_onReceiveUiChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final settings = AppSettingsScope.of(context);
+    if (_settings != settings) {
+      _settings?.removeListener(_onSettingsChanged);
+      _settings = settings;
+      _settings!.addListener(_onSettingsChanged);
+      _server.saveFolderName = settings.saveFolderName;
+      // Refresh the label if we're already listening; folder name changed.
+      if (_server.isRunning) {
+        _refreshSaveLocationLabel();
+      }
+    }
+  }
+
+  void _onSettingsChanged() {
+    final s = _settings;
+    if (s == null) return;
+    _server.saveFolderName = s.saveFolderName;
+    if (_server.isRunning) _refreshSaveLocationLabel();
+  }
+
+  Future<void> _refreshSaveLocationLabel() async {
+    final label = await _server.receiveLocationLabel();
+    if (!mounted) return;
+    setState(() => _savePathLabel = label);
   }
 
   void _onReceiveUiChanged() {
@@ -62,6 +94,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
   @override
   void dispose() {
     _server.receiveUi.removeListener(_onReceiveUiChanged);
+    _settings?.removeListener(_onSettingsChanged);
     _waitTurn.dispose();
     unawaited(_bonjour.stop());
     unawaited(_server.stop());
@@ -73,13 +106,14 @@ class _ReceiveScreenState extends State<ReceiveScreen>
   }
 
   String _idleSaveLocationHint() {
+    final folder = _settings?.saveFolderName ?? 'Pinnacle';
     if (Platform.isAndroid) {
-      return 'Received files save to Downloads / Pinnacle — open the Files or Downloads app to find them.';
+      return 'Received files save to Downloads / $folder — open the Files or Downloads app to find them.';
     }
     if (Platform.isIOS) {
-      return 'Received files save to the Files app under On My iPhone → Pinnacle → Received.';
+      return 'Received files save to the Files app under On My iPhone → Pinnacle → $folder.';
     }
-    return 'Received files save to your Downloads / Pinnacle folder.';
+    return 'Received files save to your Downloads / $folder folder.';
   }
 
   Future<void> _toggle() async {
@@ -101,6 +135,8 @@ class _ReceiveScreenState extends State<ReceiveScreen>
 
     setState(() => _busy = true);
     try {
+      _server.saveFolderName =
+          _settings?.saveFolderName ?? _server.saveFolderName;
       await _server.start();
       final label = await _server.receiveLocationLabel();
       final ip = await primaryLanIPv4();
@@ -147,6 +183,15 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     );
   }
 
+  Future<void> _openSaveLocationEditor() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SaveLocationScreen(),
+      ),
+    );
+    // Settings listener will pick up any change.
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -165,7 +210,9 @@ class _ReceiveScreenState extends State<ReceiveScreen>
               children: [
                 const SizedBox(height: 8),
                 Text(
-                  listening ? 'Ready for files' : 'Start listening to accept transfers.',
+                  listening
+                      ? 'Ready for files'
+                      : 'Start listening to accept transfers.',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -212,11 +259,12 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                                   ValueListenableBuilder<ReceiverTransferUi>(
                                     valueListenable: _server.receiveUi,
                                     builder: (context, ui, _) {
-                                      if (ui is ReceiverReceiving) {
-                                        return ReceiverReceivingBanner(state: ui);
-                                      }
-                                      return ReceiverWaitingBanner(
-                                        rotation: _waitTurn,
+                                      return AnimatedSwitcher(
+                                        duration:
+                                            const Duration(milliseconds: 260),
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        child: _statusFor(ui),
                                       );
                                     },
                                   ),
@@ -240,12 +288,21 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                 if (_savePathLabel != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'Save location\n${_savePathLabel!}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.45),
-                        height: 1.35,
-                      ),
+                    child: _SaveLocationRow(
+                      label: _savePathLabel!,
+                      onEdit: _openSaveLocationEditor,
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _SaveLocationRow(
+                      label: Platform.isAndroid
+                          ? 'Downloads / ${_settings?.saveFolderName ?? 'Pinnacle'}'
+                          : Platform.isIOS
+                              ? 'Files → On My iPhone → Pinnacle → ${_settings?.saveFolderName ?? 'Pinnacle'}'
+                              : _settings?.saveFolderName ?? 'Pinnacle',
+                      onEdit: _openSaveLocationEditor,
                     ),
                   ),
                 FilledButton(
@@ -258,6 +315,70 @@ class _ReceiveScreenState extends State<ReceiveScreen>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _statusFor(ReceiverTransferUi ui) {
+    if (ui is ReceiverConnected) {
+      return ReceiverConnectedBanner(
+        key: ValueKey('connected-${ui.fileName}'),
+        fileName: ui.fileName,
+      );
+    }
+    if (ui is ReceiverReceiving) {
+      return ReceiverReceivingBanner(
+        key: const ValueKey('receiving'),
+        state: ui,
+      );
+    }
+    return ReceiverWaitingBanner(
+      key: const ValueKey('waiting'),
+      rotation: _waitTurn,
+    );
+  }
+}
+
+class _SaveLocationRow extends StatelessWidget {
+  const _SaveLocationRow({required this.label, required this.onEdit});
+
+  final String label;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Save location',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.55),
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.82),
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: 'Change save location',
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_rounded, size: 20),
+        ),
+      ],
     );
   }
 }

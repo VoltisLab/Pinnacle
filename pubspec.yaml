@@ -24,6 +24,7 @@ dependencies:
   shelf_multipart: ^2.0.1
   bonsoir: ^6.0.2
   google_sign_in: ^7.2.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

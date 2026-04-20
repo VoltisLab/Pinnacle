@@ -52,19 +52,19 @@ class SharedStorage {
   /// Human-readable label describing WHERE received files are saved. The
   /// receive screen shows this so users know to look in their Downloads /
   /// Files app / `~/Downloads`.
-  static Future<String> receiveLocationLabel() async {
-    if (Platform.isAndroid) return 'Downloads / Pinnacle';
+  static Future<String> receiveLocationLabel({String folder = 'Pinnacle'}) async {
+    if (Platform.isAndroid) return 'Downloads / $folder';
     if (Platform.isIOS) {
-      return 'Files app → On My iPhone → Pinnacle → Received';
+      return 'Files app → On My iPhone → Pinnacle → $folder';
     }
     final downloads = await getDownloadsDirectory();
     final base = downloads ?? await getApplicationDocumentsDirectory();
-    return p.join(base.path, 'Pinnacle');
+    return p.join(base.path, folder);
   }
 
   /// Moves [sourcePath] — normally a fully-written file in the scratch
-  /// directory — into the platform's user-visible storage, returning a
-  /// [PublishedFile] describing the final location.
+  /// directory — into the platform's user-visible storage under [folder],
+  /// returning a [PublishedFile] describing the final location.
   ///
   /// The source file is removed on success (or replaced by the rename on
   /// iOS / desktop); if publishing fails the caller can fall back to the
@@ -73,6 +73,7 @@ class SharedStorage {
     required String sourcePath,
     required String displayName,
     String mimeType = 'application/octet-stream',
+    String folder = 'Pinnacle',
   }) async {
     if (Platform.isAndroid) {
       final raw = await _channel.invokeMapMethod<String, dynamic>(
@@ -81,6 +82,7 @@ class SharedStorage {
           'sourcePath': sourcePath,
           'displayName': displayName,
           'mime': mimeType,
+          'folder': folder,
         },
       );
       if (raw == null) {
@@ -88,10 +90,10 @@ class SharedStorage {
       }
       return PublishedFile(
         uri: raw['uri'] as String?,
-        displayLabel:
-            raw['displayLabel'] as String? ?? 'Downloads / Pinnacle / $displayName',
+        displayLabel: raw['displayLabel'] as String? ??
+            'Downloads / $folder / $displayName',
         directoryLabel:
-            raw['directoryLabel'] as String? ?? 'Downloads / Pinnacle',
+            raw['directoryLabel'] as String? ?? 'Downloads / $folder',
       );
     }
 
@@ -99,23 +101,26 @@ class SharedStorage {
       return _publishIntoDocuments(
         sourcePath: sourcePath,
         displayName: displayName,
-        directoryLabel: 'Files → On My iPhone → Pinnacle → Received',
+        folder: folder,
+        directoryLabel: 'Files → On My iPhone → Pinnacle → $folder',
       );
     }
 
     return _publishIntoDesktopDownloads(
       sourcePath: sourcePath,
       displayName: displayName,
+      folder: folder,
     );
   }
 
   static Future<PublishedFile> _publishIntoDocuments({
     required String sourcePath,
     required String displayName,
+    required String folder,
     required String directoryLabel,
   }) async {
     final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(docs.path, 'Pinnacle', 'Received'));
+    final dir = Directory(p.join(docs.path, folder));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -132,10 +137,11 @@ class SharedStorage {
   static Future<PublishedFile> _publishIntoDesktopDownloads({
     required String sourcePath,
     required String displayName,
+    required String folder,
   }) async {
     final downloadsDir = await getDownloadsDirectory();
     final base = downloadsDir ?? await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(base.path, 'Pinnacle'));
+    final dir = Directory(p.join(base.path, folder));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

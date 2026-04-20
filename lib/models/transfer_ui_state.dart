@@ -8,6 +8,14 @@ final class ReceiverWaiting extends ReceiverTransferUi {
   const ReceiverWaiting() : super();
 }
 
+/// A sender has opened a connection (upload request arrived) but bytes have
+/// not yet started flowing. Shown briefly as a "handshake" animation before
+/// transitioning to [ReceiverReceiving] on the first chunk.
+final class ReceiverConnected extends ReceiverTransferUi {
+  const ReceiverConnected({required this.fileName}) : super();
+  final String fileName;
+}
+
 /// Streaming a file from the sender.
 final class ReceiverReceiving extends ReceiverTransferUi {
   const ReceiverReceiving({

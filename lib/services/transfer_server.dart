@@ -25,6 +25,10 @@ class TransferServer {
     receiveUi.value = const ReceiverWaiting();
   }
 
+  void _emitConnected(String fileName) {
+    receiveUi.value = ReceiverConnected(fileName: fileName);
+  }
+
   void _emitReceiving(
     String fileName,
     int received,
@@ -39,6 +43,11 @@ class TransferServer {
     );
   }
 
+  /// Name of the folder (under Downloads / Documents / etc.) that received
+  /// files are published into. Set before [start] or updated between
+  /// transfers via settings.
+  String saveFolderName = 'Pinnacle';
+
   /// Scratch directory where in-flight multipart bodies are streamed before
   /// being handed off to [SharedStorage.publishReceivedFile]. Callers
   /// shouldn't surface this to users — use [receiveLocationLabel] instead.
@@ -46,7 +55,8 @@ class TransferServer {
 
   /// Human-readable label describing where received files end up (e.g.
   /// "Downloads / Pinnacle" on Android). Use this in the receive UI.
-  Future<String> receiveLocationLabel() => SharedStorage.receiveLocationLabel();
+  Future<String> receiveLocationLabel() =>
+      SharedStorage.receiveLocationLabel(folder: saveFolderName);
 
   int? _partContentLength(Multipart part) {
     final raw = part.headers['content-length'];
@@ -116,7 +126,11 @@ class TransferServer {
                     .first
                     .trim() ??
                 'application/octet-stream';
-            _emitReceiving(name, 0, total, 0);
+            // Flash "Connected" for a beat before bytes start flowing so the
+            // receiver clearly registers that the sender has linked up, then
+            // let the first chunk's tick transition us into "Receiving".
+            _emitConnected(name);
+            await Future<void>.delayed(const Duration(milliseconds: 700));
             final out = scratch.openWrite();
             try {
               await _streamPartToFile(
@@ -136,6 +150,7 @@ class TransferServer {
                 sourcePath: scratch.path,
                 displayName: name,
                 mimeType: mime,
+                folder: saveFolderName,
               );
             } catch (e, st) {
               debugPrint('Pinnacle publish error: $e\n$st');

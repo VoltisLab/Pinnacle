@@ -137,6 +137,99 @@ class ReceiverWaitingBanner extends StatelessWidget {
   }
 }
 
+/// Receiver: sender just linked up, bytes haven't started yet.
+class ReceiverConnectedBanner extends StatefulWidget {
+  const ReceiverConnectedBanner({super.key, required this.fileName});
+
+  final String fileName;
+
+  @override
+  State<ReceiverConnectedBanner> createState() =>
+      _ReceiverConnectedBannerState();
+}
+
+class _ReceiverConnectedBannerState extends State<ReceiverConnectedBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+        child: Row(
+          children: [
+            AnimatedBuilder(
+              animation: _pulse,
+              builder: (context, _) {
+                final t = Curves.easeInOut.transform(_pulse.value);
+                final scale = 1.0 + 0.14 * t;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: theme.colorScheme.primary
+                              .withOpacity(0.14 + 0.12 * t),
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.check_rounded,
+                      size: 32,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Connected',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Sender linked. Preparing ${widget.fileName}…',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.65),
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Receiver: bytes streaming in.
 class ReceiverReceivingBanner extends StatelessWidget {
   const ReceiverReceivingBanner({super.key, required this.state});
