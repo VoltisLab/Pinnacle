@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_multipart/shelf_multipart.dart';
 
 import '../models/transfer_ui_state.dart';
+import 'shared_storage.dart';
 
 /// Lightweight HTTP server for same-network uploads (multipart field name: `file`).
 class TransferServer {
@@ -39,14 +39,14 @@ class TransferServer {
     );
   }
 
-  Future<Directory> receiveDirectory() async {
-    final root = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(root.path, 'Pinnacle', 'Received'));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
+  /// Scratch directory where in-flight multipart bodies are streamed before
+  /// being handed off to [SharedStorage.publishReceivedFile]. Callers
+  /// shouldn't surface this to users — use [receiveLocationLabel] instead.
+  Future<Directory> scratchDirectory() => SharedStorage.scratchReceiveDirectory();
+
+  /// Human-readable label describing where received files end up (e.g.
+  /// "Downloads / Pinnacle" on Android). Use this in the receive UI.
+  Future<String> receiveLocationLabel() => SharedStorage.receiveLocationLabel();
 
   int? _partContentLength(Multipart part) {
     final raw = part.headers['content-length'];
@@ -82,7 +82,7 @@ class TransferServer {
 
   Future<void> start() async {
     if (_httpServer != null) return;
-    final receiveDir = await receiveDirectory();
+    final scratchDir = await scratchDirectory();
     _emitWaiting();
 
     Future<Response> handleRequest(Request request) async {
@@ -109,10 +109,15 @@ class TransferServer {
           await for (final formData in form.formData) {
             if (formData.name != 'file') continue;
             final name = _safeFileName(formData.filename ?? 'file');
-            final target = await _uniqueFile(receiveDir, name);
+            final scratch = await _uniqueFile(scratchDir, name);
             final total = _partContentLength(formData.part);
+            final mime = formData.part.headers['content-type']
+                    ?.split(';')
+                    .first
+                    .trim() ??
+                'application/octet-stream';
             _emitReceiving(name, 0, total, 0);
-            final out = target.openWrite();
+            final out = scratch.openWrite();
             try {
               await _streamPartToFile(
                 formData.part,
@@ -122,6 +127,20 @@ class TransferServer {
             } finally {
               await out.flush();
               await out.close();
+            }
+            // Hand the completed file off to the user-visible location.
+            // If publishing fails we still have the scratch copy — leave it
+            // on disk so data isn't lost, but report the failure.
+            try {
+              await SharedStorage.publishReceivedFile(
+                sourcePath: scratch.path,
+                displayName: name,
+                mimeType: mime,
+              );
+            } catch (e, st) {
+              debugPrint('Pinnacle publish error: $e\n$st');
+              // Fall through with success: the bytes are safe in scratch and
+              // the sender shouldn't see a 500 for an OS-level failure.
             }
             saved++;
           }

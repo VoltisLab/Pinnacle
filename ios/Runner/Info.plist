@@ -56,5 +56,9 @@
 	<string>Pinnacle needs camera access to scan QR codes when connecting to a receiver.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Pinnacle needs photo library access when you choose images to send.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>

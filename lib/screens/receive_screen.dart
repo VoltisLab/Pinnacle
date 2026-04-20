@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -71,6 +72,16 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     return '${100000 + Random().nextInt(900000)}';
   }
 
+  String _idleSaveLocationHint() {
+    if (Platform.isAndroid) {
+      return 'Received files save to Downloads / Pinnacle — open the Files or Downloads app to find them.';
+    }
+    if (Platform.isIOS) {
+      return 'Received files save to the Files app under On My iPhone → Pinnacle → Received.';
+    }
+    return 'Received files save to your Downloads / Pinnacle folder.';
+  }
+
   Future<void> _toggle() async {
     if (_server.isRunning) {
       setState(() => _busy = true);
@@ -91,7 +102,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     setState(() => _busy = true);
     try {
       await _server.start();
-      final dir = await _server.receiveDirectory();
+      final label = await _server.receiveLocationLabel();
       final ip = await primaryLanIPv4();
       final port = _server.port;
       final code = _makePairCode();
@@ -103,7 +114,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
         _httpUrl = http;
         _qrPayload = qr;
         _pairCode = code;
-        _savePathLabel = dir.path;
+        _savePathLabel = label;
         _busy = false;
       });
       _syncWaitRotation();
@@ -163,7 +174,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                 Text(
                   listening
                       ? 'Scan the QR, open the link, or enter the pairing code on the sender.'
-                      : 'Files are saved in Documents/Pinnacle/Received.',
+                      : _idleSaveLocationHint(),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.65),
                     height: 1.4,
