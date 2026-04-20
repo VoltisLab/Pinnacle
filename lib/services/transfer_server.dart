@@ -52,14 +52,34 @@ class TransferServer {
     String fileName,
     int received,
     int? total,
-    double bps,
-  ) {
+    double bps, {
+    int? sessionBytesTotal,
+    int? sessionBytesBeforeThisFile,
+    int? sessionBytesReceivedOverride,
+  }) {
+    int? sessionReceived;
+    if (sessionBytesReceivedOverride != null) {
+      sessionReceived = sessionBytesReceivedOverride;
+    } else if (sessionBytesTotal != null &&
+        sessionBytesTotal > 0 &&
+        sessionBytesBeforeThisFile != null) {
+      sessionReceived = sessionBytesBeforeThisFile + received;
+    }
     receiveUi.value = ReceiverReceiving(
       fileName: fileName,
       bytesReceived: received,
       bytesTotal: total,
       speedBytesPerSecond: bps,
+      sessionBytesReceived: sessionReceived,
+      sessionBytesTotal: sessionBytesTotal,
     );
+  }
+
+  /// Receiver UI: drop the linked sender (same as `POST /disconnect`).
+  void resetPeerLink() {
+    if (_httpServer != null) {
+      _emitWaitingConnection();
+    }
   }
 
   /// Name of the folder (under Downloads / Documents / etc.) that received
@@ -169,6 +189,12 @@ class TransferServer {
       // --- Fast path: raw binary upload. No multipart framing.
       if ((path == 'upload-raw' || path == '/upload-raw') &&
           request.method == 'POST') {
+        int? hdrInt(String n) {
+          final raw = request.headers[n] ?? request.headers[n.toLowerCase()];
+          if (raw == null || raw.isEmpty) return null;
+          return int.tryParse(raw.trim());
+        }
+
         final encodedName = request.headers['x-pinnacle-filename'];
         if (encodedName == null || encodedName.isEmpty) {
           return Response.badRequest(body: 'Missing X-Pinnacle-Filename');
@@ -176,6 +202,10 @@ class TransferServer {
         final name = _safeFileName(_decode(encodedName));
         final totalHdr = request.headers['content-length'];
         final total = (totalHdr == null) ? null : int.tryParse(totalHdr);
+        final sessionTotal =
+            hdrInt('x-pinnacle-session-total-bytes');
+        final sessionOffset =
+            hdrInt('x-pinnacle-session-offset-bytes') ?? 0;
         final scratch = await _uniqueFile(scratchDir, name);
         final mime = (request.headers['content-type'] ?? '')
                 .split(';')
@@ -186,11 +216,22 @@ class TransferServer {
             : request.headers['content-type']!.split(';').first.trim();
 
         final out = scratch.openWrite();
+        var streamedBytes = 0;
         try {
           await _streamToFile(
             request.read(),
             out,
-            (received, bps) => _emitReceiving(name, received, total, bps),
+            (received, bps) {
+              streamedBytes = received;
+              _emitReceiving(
+                name,
+                received,
+                total,
+                bps,
+                sessionBytesTotal: sessionTotal,
+                sessionBytesBeforeThisFile: sessionOffset,
+              );
+            },
           );
         } finally {
           await out.flush();
@@ -207,9 +248,22 @@ class TransferServer {
         } catch (e, st) {
           debugPrint('Pinnacle publish error: $e\n$st');
         }
-        // Return to "connected" so the receiver shows the tick + waiting
-        // animation, ready for the next file.
-        _emitConnected();
+        final fileLen = total ?? streamedBytes;
+        final doneOverall = sessionOffset + fileLen;
+        if (sessionTotal != null &&
+            sessionTotal > 0 &&
+            doneOverall < sessionTotal) {
+          _emitReceiving(
+            'Waiting for next file…',
+            0,
+            null,
+            0,
+            sessionBytesTotal: sessionTotal,
+            sessionBytesReceivedOverride: doneOverall,
+          );
+        } else {
+          _emitConnected();
+        }
         return Response.ok(
           jsonEncode({'ok': true, 'saved': 1}),
           headers: {'content-type': 'application/json'},
@@ -223,8 +277,19 @@ class TransferServer {
         if (form == null) {
           return Response.badRequest(body: 'Expected multipart form-data');
         }
+        int? hdrInt(String n) {
+          final raw = request.headers[n] ?? request.headers[n.toLowerCase()];
+          if (raw == null || raw.isEmpty) return null;
+          return int.tryParse(raw.trim());
+        }
+
+        final sessionTotal =
+            hdrInt('x-pinnacle-session-total-bytes');
+        final sessionOffset =
+            hdrInt('x-pinnacle-session-offset-bytes') ?? 0;
         try {
           var saved = 0;
+          var bytesThisRequest = 0;
           await for (final formData in form.formData) {
             if (formData.name != 'file') continue;
             final name = _safeFileName(formData.filename ?? 'file');
@@ -237,16 +302,28 @@ class TransferServer {
                 'application/octet-stream';
 
             final out = scratch.openWrite();
+            var partBytes = 0;
             try {
               await _streamToFile(
                 formData.part,
                 out,
-                (received, bps) => _emitReceiving(name, received, total, bps),
+                (received, bps) {
+                  partBytes = received;
+                  _emitReceiving(
+                    name,
+                    received,
+                    total,
+                    bps,
+                    sessionBytesTotal: sessionTotal,
+                    sessionBytesBeforeThisFile: sessionOffset,
+                  );
+                },
               );
             } finally {
               await out.flush();
               await out.close();
             }
+            bytesThisRequest += partBytes;
             try {
               await SharedStorage.publishReceivedFile(
                 sourcePath: scratch.path,
@@ -263,7 +340,21 @@ class TransferServer {
             _emitConnected();
             return Response.badRequest(body: 'No file field named "file"');
           }
-          _emitConnected();
+          final doneOverall = sessionOffset + bytesThisRequest;
+          if (sessionTotal != null &&
+              sessionTotal > 0 &&
+              doneOverall < sessionTotal) {
+            _emitReceiving(
+              'Waiting for next file…',
+              0,
+              null,
+              0,
+              sessionBytesTotal: sessionTotal,
+              sessionBytesReceivedOverride: doneOverall,
+            );
+          } else {
+            _emitConnected();
+          }
           return Response.ok(jsonEncode({'ok': true, 'saved': saved}),
               headers: {'content-type': 'application/json'});
         } catch (e, st) {

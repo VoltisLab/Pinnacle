@@ -71,6 +71,8 @@ class TransferClient {
     String filePath, {
     void Function(int bytesSent, int bytesTotal, double speedBytesPerSecond)?
         onProgress,
+    int? sessionTotalBytes,
+    int? sessionBytesBeforeThisFile,
   }) async {
     final uri = _endpointUri(baseUrl, '/upload-raw');
     final file = File(filePath);
@@ -114,6 +116,16 @@ class TransferClient {
         'X-Pinnacle-Filename',
         Uri.encodeComponent(name),
       );
+      if (sessionTotalBytes != null && sessionTotalBytes > 0) {
+        req.headers.set(
+          'X-Pinnacle-Session-Total-Bytes',
+          '$sessionTotalBytes',
+        );
+        req.headers.set(
+          'X-Pinnacle-Session-Offset-Bytes',
+          '${sessionBytesBeforeThisFile ?? 0}',
+        );
+      }
       req.bufferOutput = false;
       await req.addStream(metered());
       final resp = await req.close();
@@ -126,6 +138,8 @@ class TransferClient {
             baseUrl,
             filePath,
             onProgress: onProgress,
+            sessionTotalBytes: sessionTotalBytes,
+            sessionBytesBeforeThisFile: sessionBytesBeforeThisFile,
           );
         }
         final snippet = body.length > 200 ? '${body.substring(0, 200)}…' : body;
@@ -147,6 +161,8 @@ class TransferClient {
     String baseUrl,
     String filePath, {
     void Function(int, int, double)? onProgress,
+    int? sessionTotalBytes,
+    int? sessionBytesBeforeThisFile,
   }) async {
     final uri = _endpointUri(baseUrl, '/upload');
     final file = File(filePath);
@@ -191,6 +207,16 @@ class TransferClient {
       req.headers.contentType =
           ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
       req.headers.contentLength = totalLen;
+      if (sessionTotalBytes != null && sessionTotalBytes > 0) {
+        req.headers.set(
+          'X-Pinnacle-Session-Total-Bytes',
+          '$sessionTotalBytes',
+        );
+        req.headers.set(
+          'X-Pinnacle-Session-Offset-Bytes',
+          '${sessionBytesBeforeThisFile ?? 0}',
+        );
+      }
       req.bufferOutput = false;
       await req.addStream(body());
       final resp = await req.close();

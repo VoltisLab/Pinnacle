@@ -21,7 +21,7 @@ class AboutScreen extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 8, bottom: 14),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
-                  color: theme.colorScheme.primary.withOpacity(0.14),
+                  color: theme.colorScheme.primaryContainer,
                 ),
                 child: Icon(
                   Icons.send_rounded,

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../state/app_settings.dart';
 import '../widgets/mesh_gradient_background.dart';
 import 'receive_screen.dart';
-import 'send_screen.dart';
 import 'settings/settings_screen.dart';
+import 'send_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -17,86 +17,91 @@ class HomeScreen extends StatelessWidget {
     return MeshGradientBackground(
       child: Scaffold(
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Pinnacle',
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.8,
-                        ),
+          child: Stack(
+            children: [
+              Positioned(
+                top: 4,
+                right: 4,
+                child: IconButton(
+                  tooltip: 'Settings',
+                  onPressed: () {
+                    Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SettingsScreen(),
                       ),
-                    ),
-                    IconButton.filledTonal(
-                      tooltip: 'Settings',
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const SettingsScreen(),
-                        ),
-                      ),
-                      icon: const Icon(Icons.settings_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  settings.isSignedIn
-                      ? 'Signed in as ${settings.accountEmail}.'
-                      : 'Wireless transfer between devices on the same network.',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurface.withOpacity(0.72),
-                    height: 1.35,
+                    );
+                  },
+                  icon: Icon(
+                    Icons.settings_outlined,
+                    size: 24,
+                    color: theme.colorScheme.onSurface.withOpacity(0.5),
                   ),
                 ),
-                const SizedBox(height: 36),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _ModeCard(
-                        icon: Icons.north_east_rounded,
-                        title: 'Send',
-                        subtitle: 'Pick files and share to a nearby receiver.',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const SendScreen(),
+              ),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Pinnacle',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.displaySmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.8,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      _ModeCard(
-                        icon: Icons.south_west_rounded,
-                        title: 'Receive',
-                        subtitle: 'Show a QR code and save incoming files.',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const ReceiveScreen(),
+                        const SizedBox(height: 10),
+                        Text(
+                          settings.isSignedIn
+                              ? 'Signed in as ${settings.accountEmail}.'
+                              : 'Wireless transfer between devices on the same network.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurface.withOpacity(0.72),
+                            height: 1.35,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 20),
-                  child: Center(
-                    child: Text(
-                      'Both devices should be on the same Wi‑Fi.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.45),
-                      ),
+                        const SizedBox(height: 36),
+                        _ModeCard(
+                          icon: Icons.file_upload_rounded,
+                          title: 'Send',
+                          subtitle: 'Pick files and share to a nearby receiver.',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const SendScreen(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _ModeCard(
+                          icon: Icons.file_download_rounded,
+                          title: 'Receive',
+                          subtitle: 'Show a QR code and save incoming files.',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const ReceiveScreen(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        Text(
+                          'Both devices should be on the same Wi‑Fi.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withOpacity(0.45),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -136,7 +141,7 @@ class _ModeCard extends StatelessWidget {
                 height: 52,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  color: theme.colorScheme.primary.withOpacity(0.14),
+                  color: theme.colorScheme.primaryContainer,
                 ),
                 child: Icon(icon, color: theme.colorScheme.primary),
               ),

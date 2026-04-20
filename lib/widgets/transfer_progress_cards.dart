@@ -267,7 +267,8 @@ class ReceiverReceivingBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasTotal = state.bytesTotal != null && state.bytesTotal! > 0;
-    final pct = hasTotal ? state.percent : null;
+    final useSession = state.hasSessionProgress;
+    final pct = (useSession || hasTotal) ? state.percent : null;
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -276,7 +277,7 @@ class ReceiverReceivingBanner extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Receiving',
+              useSession ? 'Receiving (all files)' : 'Receiving',
               style: theme.textTheme.labelLarge?.copyWith(
                 color: theme.colorScheme.tertiary,
                 fontWeight: FontWeight.w600,
@@ -284,7 +285,7 @@ class ReceiverReceivingBanner extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              state.fileName,
+              useSession ? 'Current: ${state.fileName}' : state.fileName,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.titleSmall?.copyWith(
@@ -296,7 +297,7 @@ class ReceiverReceivingBanner extends StatelessWidget {
               borderRadius: BorderRadius.circular(6),
               child: LinearProgressIndicator(
                 minHeight: 8,
-                value: hasTotal ? state.fraction : null,
+                value: useSession || hasTotal ? state.fraction : null,
                 backgroundColor:
                     theme.colorScheme.surfaceContainerHighest.withOpacity(0.6),
               ),
@@ -305,7 +306,7 @@ class ReceiverReceivingBanner extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  hasTotal ? '$pct%' : _bytesLabel(state.bytesReceived),
+                  useSession || hasTotal ? '$pct%' : _bytesLabel(state.bytesReceived),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),

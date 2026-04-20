@@ -6,17 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../models/transfer_ui_state.dart';
 import '../services/local_address.dart';
 import '../services/pairing_bonjour.dart';
 import '../services/pinnacle_pairing_uri.dart';
+import '../models/transfer_ui_state.dart';
 import '../services/transfer_server.dart';
-import '../state/app_settings.dart';
-import '../state/transfer_overlay_controller.dart';
-import '../widgets/connected_tick_dialog.dart';
 import '../widgets/mesh_gradient_background.dart';
 import '../widgets/transfer_progress_cards.dart';
-import 'settings/save_location_screen.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({super.key});
@@ -30,14 +26,14 @@ class _ReceiveScreenState extends State<ReceiveScreen>
   final _server = TransferServer();
   final _bonjour = PairingBonjourAdvertiser();
   bool _busy = false;
-  bool _starting = true;
   String? _httpUrl;
   String? _qrPayload;
   String _pairCode = '';
   String? _savePathLabel;
-  AppSettings? _settings;
-  bool _showedConnectedDialog = false;
   late final AnimationController _waitTurn;
+  /// After the first inbound bytes for this listen session, hide the QR (pairing code stays).
+  bool _hideQrForSession = false;
+  bool _hapticArmedForSession = true;
 
   @override
   void initState() {
@@ -47,43 +43,26 @@ class _ReceiveScreenState extends State<ReceiveScreen>
       duration: const Duration(seconds: 3),
     );
     _server.receiveUi.addListener(_onReceiveUiChanged);
-    // Kick off listening immediately — user 7: skip the extra "tap to
-    // start" screen. Scheduled post-frame so we can read settings first.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _autoStart());
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final settings = AppSettingsScope.of(context);
-    if (_settings != settings) {
-      _settings?.removeListener(_onSettingsChanged);
-      _settings = settings;
-      _settings!.addListener(_onSettingsChanged);
-      _server.saveFolderName = settings.saveFolderName;
-      if (_server.isRunning) {
-        _refreshSaveLocationLabel();
-      }
-    }
-  }
-
-  void _onSettingsChanged() {
-    final s = _settings;
-    if (s == null) return;
-    _server.saveFolderName = s.saveFolderName;
-    if (_server.isRunning) _refreshSaveLocationLabel();
-  }
-
-  Future<void> _refreshSaveLocationLabel() async {
-    final label = await _server.receiveLocationLabel();
-    if (!mounted) return;
-    setState(() => _savePathLabel = label);
+    // Skip the idle "tap Start" step — go straight to listening when opening Receive.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _server.isRunning) return;
+      unawaited(_startReceiving());
+    });
   }
 
   void _onReceiveUiChanged() {
     _syncWaitRotation();
-    _maybeShowConnectedTick();
-    _maybePublishReceivingOverlay();
+    final ui = _server.receiveUi.value;
+    if (_server.isRunning &&
+        (ui is ReceiverReceiving || ui is ReceiverConnected)) {
+      if (_hapticArmedForSession) {
+        _hapticArmedForSession = false;
+        HapticFeedback.mediumImpact();
+      }
+      if (!_hideQrForSession && mounted) {
+        setState(() => _hideQrForSession = true);
+      }
+    }
   }
 
   void _syncWaitRotation() {
@@ -99,50 +78,12 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     }
   }
 
-  void _maybeShowConnectedTick() {
-    final v = _server.receiveUi.value;
-    if (v is ReceiverConnected && !_showedConnectedDialog && mounted) {
-      _showedConnectedDialog = true;
-      unawaited(
-        ConnectedTickDialog.show(
-          context,
-          title: 'Connected',
-          subtitle:
-              v.peerLabel != null
-                  ? '${v.peerLabel} is linked. Waiting for files.'
-                  : 'A sender is linked. Waiting for files.',
-        ),
-      );
-    }
-    if (v is ReceiverWaitingConnection) {
-      // Reset so reconnecting a new peer shows the celebration again.
-      _showedConnectedDialog = false;
-    }
-  }
-
-  void _maybePublishReceivingOverlay() {
-    final v = _server.receiveUi.value;
-    if (v is ReceiverReceiving) {
-      TransferOverlayController.instance.publish(TransferSnapshot(
-        role: TransferRole.receiving,
-        fileName: v.fileName,
-        bytesDone: v.bytesReceived,
-        bytesTotal: v.bytesTotal ?? 0,
-        bytesPerSecond: v.speedBytesPerSecond,
-      ));
-    } else {
-      TransferOverlayController.instance.clear();
-    }
-  }
-
   @override
   void dispose() {
     _server.receiveUi.removeListener(_onReceiveUiChanged);
-    _settings?.removeListener(_onSettingsChanged);
     _waitTurn.dispose();
     unawaited(_bonjour.stop());
     unawaited(_server.stop());
-    TransferOverlayController.instance.clear();
     super.dispose();
   }
 
@@ -150,22 +91,38 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     return '${100000 + Random().nextInt(900000)}';
   }
 
-  Future<void> _autoStart() async {
-    if (_server.isRunning) {
-      setState(() => _starting = false);
-      return;
+  String _idleSaveLocationHint() {
+    if (Platform.isAndroid) {
+      return 'Received files save to Downloads / Pinnacle — open the Files or Downloads app to find them.';
     }
-    await _startServer();
+    if (Platform.isIOS) {
+      return 'Received files save to the Files app under On My iPhone → Pinnacle → Received.';
+    }
+    return 'Received files save to your Downloads / Pinnacle folder.';
   }
 
-  Future<void> _startServer() async {
-    setState(() {
-      _busy = true;
-      _starting = true;
-    });
+  Future<void> _stopReceiving() async {
+    setState(() => _busy = true);
+    await _bonjour.stop();
+    await _server.stop();
+    if (mounted) {
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _busy = false;
+        _httpUrl = null;
+        _qrPayload = null;
+        _pairCode = '';
+        _hideQrForSession = false;
+        _hapticArmedForSession = true;
+      });
+      _syncWaitRotation();
+    }
+  }
+
+  Future<void> _startReceiving() async {
+    if (_server.isRunning) return;
+    setState(() => _busy = true);
     try {
-      _server.saveFolderName =
-          _settings?.saveFolderName ?? _server.saveFolderName;
       await _server.start();
       final label = await _server.receiveLocationLabel();
       final ip = await primaryLanIPv4();
@@ -181,35 +138,26 @@ class _ReceiveScreenState extends State<ReceiveScreen>
         _pairCode = code;
         _savePathLabel = label;
         _busy = false;
-        _starting = false;
+        _hideQrForSession = false;
+        _hapticArmedForSession = true;
       });
       _syncWaitRotation();
     } catch (e) {
       await _bonjour.stop();
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _starting = false;
-      });
+      setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not start server: $e')),
       );
     }
   }
 
-  Future<void> _stopServer() async {
-    setState(() => _busy = true);
-    await _bonjour.stop();
-    await _server.stop();
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _httpUrl = null;
-      _qrPayload = null;
-      _pairCode = '';
-      _showedConnectedDialog = false;
-    });
-    _syncWaitRotation();
+  Future<void> _toggle() async {
+    if (_server.isRunning) {
+      await _stopReceiving();
+    } else {
+      await _startReceiving();
+    }
   }
 
   Future<void> _copyUrl() async {
@@ -231,84 +179,95 @@ class _ReceiveScreenState extends State<ReceiveScreen>
     );
   }
 
-  Future<void> _openSaveLocationEditor() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const SaveLocationScreen(),
-      ),
-    );
-  }
+  Future<void> _disconnect() => _stopReceiving();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final listening = _server.isRunning;
+    final starting = _busy && !listening;
 
     return MeshGradientBackground(
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Receive'),
-          actions: [
-            if (listening)
-              IconButton(
-                tooltip: 'Stop listening',
-                onPressed: _busy ? null : _stopServer,
-                icon: const Icon(Icons.power_settings_new_rounded),
-              ),
-          ],
         ),
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: _starting
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 8),
-                      Text(
-                        'Ready for files',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Scan the QR or enter the pairing code on the sender.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color:
-                              theme.colorScheme.onSurface.withOpacity(0.65),
-                          height: 1.4,
-                        ),
-                      ),
-                      if (runningOnIosSimulator) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          'Simulator: paste the URL on the sender — the '
-                          'camera scanner is unavailable here.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.secondary,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      Expanded(
-                        child: _qrPayload == null
-                            ? const Center(child: CircularProgressIndicator())
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  listening
+                      ? 'Ready for files'
+                      : starting
+                          ? 'Starting receiver…'
+                          : 'Not listening',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  listening
+                      ? 'Share the pairing code with the sender. The QR hides when a sender connects.'
+                      : starting
+                          ? 'Turning on your hotspot URL and pairing code.'
+                          : _idleSaveLocationHint(),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface.withOpacity(0.65),
+                    height: 1.4,
+                  ),
+                ),
+                if (listening && runningOnIosSimulator) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Simulator: use pairing code or paste the URL on the sender — '
+                    'the camera scanner is unavailable here.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.secondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 280),
+                    child: !listening
+                        ? (starting
+                            ? const Center(
+                                key: ValueKey('starting'),
+                                child: CircularProgressIndicator(),
+                              )
+                            : Center(
+                                key: const ValueKey('idle'),
+                                child: _IdleIllustration(theme: theme),
+                              ))
+                        : _qrPayload == null
+                            ? const Center(
+                                key: ValueKey('busy'),
+                                child: CircularProgressIndicator(),
+                              )
                             : Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.stretch,
+                                key: ValueKey(_qrPayload),
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   ValueListenableBuilder<ReceiverTransferUi>(
                                     valueListenable: _server.receiveUi,
                                     builder: (context, ui, _) {
-                                      return AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 280),
-                                        switchInCurve: Curves.easeOutCubic,
-                                        switchOutCurve: Curves.easeInCubic,
-                                        child: _statusFor(ui),
+                                      if (ui is ReceiverReceiving) {
+                                        return ReceiverReceivingBanner(state: ui);
+                                      }
+                                      if (ui is ReceiverConnected) {
+                                        return ReceiverConnectedBanner(
+                                          peerLabel: ui.peerLabel,
+                                        );
+                                      }
+                                      return ReceiverWaitingConnectionBanner(
+                                        rotation: _waitTurn,
                                       );
                                     },
                                   ),
@@ -321,94 +280,70 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                                         pairCode: _pairCode,
                                         onCopyUrl: _copyUrl,
                                         onCopyCode: _copyCode,
+                                        showQr: !_hideQrForSession,
                                         qrSize: 188,
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _SaveLocationRow(
-                          label: _savePathLabel ?? _fallbackSaveLabel(),
-                          onEdit: _openSaveLocationEditor,
-                        ),
-                      ),
-                    ],
                   ),
+                ),
+                if (_savePathLabel != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Save location\n${_savePathLabel!}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.45),
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                if (listening)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _disconnect,
+                      icon: const Icon(Icons.link_off_rounded, size: 20),
+                      label: const Text('Disconnect'),
+                    ),
+                  ),
+                FilledButton(
+                  onPressed: _busy ? null : _toggle,
+                  child: Text(listening ? 'Stop receiving' : 'Start receiving'),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-
-  String _fallbackSaveLabel() {
-    final folder = _settings?.saveFolderName ?? 'Pinnacle';
-    if (Platform.isAndroid) return 'Downloads / $folder';
-    if (Platform.isIOS) return 'Files → On My iPhone → Pinnacle → $folder';
-    return '<Downloads> / $folder';
-  }
-
-  Widget _statusFor(ReceiverTransferUi ui) {
-    if (ui is ReceiverReceiving) {
-      return ReceiverReceivingBanner(
-        key: const ValueKey('receiving'),
-        state: ui,
-      );
-    }
-    if (ui is ReceiverConnected) {
-      return ReceiverConnectedBanner(
-        key: const ValueKey('connected'),
-        peerLabel: ui.peerLabel,
-      );
-    }
-    return ReceiverWaitingConnectionBanner(
-      key: const ValueKey('waiting-connection'),
-      rotation: _waitTurn,
-    );
-  }
 }
 
-class _SaveLocationRow extends StatelessWidget {
-  const _SaveLocationRow({required this.label, required this.onEdit});
+class _IdleIllustration extends StatelessWidget {
+  const _IdleIllustration({required this.theme});
 
-  final String label;
-  final VoidCallback onEdit;
+  final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Save location',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.55),
-                  letterSpacing: 0.4,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.82),
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
+        Icon(
+          Icons.qr_code_2_rounded,
+          size: 72,
+          color: theme.colorScheme.onSurface.withOpacity(0.22),
         ),
-        const SizedBox(width: 8),
-        IconButton(
-          tooltip: 'Change save location',
-          onPressed: onEdit,
-          icon: const Icon(Icons.edit_rounded, size: 20),
+        const SizedBox(height: 16),
+        Text(
+          'Your QR and pairing code will appear here',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: theme.colorScheme.onSurface.withOpacity(0.5),
+          ),
         ),
       ],
     );
@@ -423,6 +358,7 @@ class _ReceivePanel extends StatelessWidget {
     required this.pairCode,
     required this.onCopyUrl,
     required this.onCopyCode,
+    this.showQr = true,
     this.qrSize = 220,
   });
 
@@ -432,14 +368,15 @@ class _ReceivePanel extends StatelessWidget {
   final String pairCode;
   final VoidCallback onCopyUrl;
   final VoidCallback onCopyCode;
+  final bool showQr;
   final double qrSize;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showQr) ...[
           Material(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
@@ -451,52 +388,87 @@ class _ReceivePanel extends StatelessWidget {
                 version: QrVersions.auto,
                 gapless: true,
                 size: qrSize,
-                eyeStyle: const QrEyeStyle(
+                eyeStyle: QrEyeStyle(
                   eyeShape: QrEyeShape.square,
-                  color: Color(0xFF0B0B0D),
+                  color: theme.colorScheme.onSurface,
                 ),
-                dataModuleStyle: const QrDataModuleStyle(
+                dataModuleStyle: QrDataModuleStyle(
                   dataModuleShape: QrDataModuleShape.square,
-                  color: Color(0xFF0B0B0D),
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            'Pairing code',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurface.withOpacity(0.55),
+          const SizedBox(height: 16),
+        ] else ...[
+            Icon(
+              Icons.wifi_tethering_rounded,
+              size: 48,
+              color: theme.colorScheme.primary,
             ),
-          ),
-          const SizedBox(height: 4),
-          SelectableText(
-            pairCode,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: 4,
+            const SizedBox(height: 12),
+            Text(
+              'Connected — share the pairing code if the sender still needs it.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.7),
+                height: 1.35,
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              OutlinedButton.icon(
-                onPressed: onCopyCode,
-                icon: const Icon(Icons.pin_rounded, size: 20),
-                label: const Text('Copy code'),
-              ),
-              OutlinedButton.icon(
-                onPressed: onCopyUrl,
-                icon: const Icon(Icons.copy_rounded, size: 20),
-                label: Text(httpUrl != null ? 'Copy link' : 'Copy QR text'),
-              ),
-            ],
-          ),
+            const SizedBox(height: 16),
         ],
-      ),
+        if (httpUrl != null)
+          SelectableText(
+            httpUrl!,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+            textAlign: TextAlign.center,
+          )
+        else
+          Text(
+            'Open Wi‑Fi for a direct link, or use the pairing code below.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.65),
+              height: 1.35,
+            ),
+          ),
+        const SizedBox(height: 8),
+        Text(
+          'Pairing code',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurface.withOpacity(0.55),
+          ),
+        ),
+        const SizedBox(height: 6),
+        SelectableText(
+          pairCode,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: 4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            OutlinedButton.icon(
+              onPressed: onCopyCode,
+              icon: const Icon(Icons.pin_rounded, size: 20),
+              label: const Text('Copy code'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onCopyUrl,
+              icon: const Icon(Icons.copy_rounded, size: 20),
+              label: Text(httpUrl != null ? 'Copy link' : 'Copy QR text'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

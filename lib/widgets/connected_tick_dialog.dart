@@ -98,7 +98,7 @@ class _ConnectedTickDialogState extends State<ConnectedTickDialog>
                         height: 92,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: theme.colorScheme.primary.withOpacity(0.16),
+                          color: theme.colorScheme.primaryContainer,
                         ),
                       ),
                     ),

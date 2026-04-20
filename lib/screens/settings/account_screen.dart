@@ -169,7 +169,7 @@ class _ProfileCard extends StatelessWidget {
               height: 56,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: theme.colorScheme.primary.withOpacity(0.18),
+                color: theme.colorScheme.primaryContainer,
               ),
               alignment: Alignment.center,
               child: Text(

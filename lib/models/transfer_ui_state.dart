@@ -17,13 +17,15 @@ final class ReceiverConnected extends ReceiverTransferUi {
   final String? peerLabel;
 }
 
-/// Streaming a file from the sender.
+/// Streaming a file from the sender (or a between-files session placeholder).
 final class ReceiverReceiving extends ReceiverTransferUi {
   const ReceiverReceiving({
     required this.fileName,
     required this.bytesReceived,
     required this.bytesTotal,
     required this.speedBytesPerSecond,
+    this.sessionBytesReceived,
+    this.sessionBytesTotal,
   }) : super();
 
   final String fileName;
@@ -31,7 +33,19 @@ final class ReceiverReceiving extends ReceiverTransferUi {
   final int? bytesTotal;
   final double speedBytesPerSecond;
 
+  /// When the sender batches multiple files, one overall progress bar uses these.
+  final int? sessionBytesReceived;
+  final int? sessionBytesTotal;
+
+  bool get hasSessionProgress =>
+      sessionBytesTotal != null &&
+      sessionBytesTotal! > 0 &&
+      sessionBytesReceived != null;
+
   double get fraction {
+    if (hasSessionProgress) {
+      return (sessionBytesReceived! / sessionBytesTotal!).clamp(0.0, 1.0);
+    }
     final t = bytesTotal;
     if (t == null || t <= 0) return 0;
     return (bytesReceived / t).clamp(0.0, 1.0);

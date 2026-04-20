@@ -2,8 +2,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-/// Soft vignette behind screens. Re-tints itself for light vs. dark so the
-/// accent blur still reads as warm without washing out the page.
+import '../theme/app_theme.dart';
+
+/// Soft atmosphere — warm cream in light mode, deep blue at night.
 class MeshGradientBackground extends StatelessWidget {
   const MeshGradientBackground({super.key, required this.child});
 
@@ -11,20 +12,26 @@ class MeshGradientBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final base = isDark
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
+    final List<Color> baseGradient = isLight
         ? const [
-            Color(0xFF0B0B0D),
-            Color(0xFF0E0E12),
-            Color(0xFF0B0B0D),
+            AppTheme.lightCreamCanvas,
+            AppTheme.lightCreamMid,
+            AppTheme.lightCreamCanvas,
           ]
         : const [
-            Color(0xFFFAF7F0),
-            Color(0xFFF5F0E4),
-            Color(0xFFFAF7F0),
+            Color(0xFF0B1220),
+            Color(0xFF0F172A),
+            Color(0xFF0B1220),
           ];
-    final haloA = isDark ? const Color(0x332A2418) : const Color(0x55D9C089);
-    final haloB = isDark ? const Color(0x22181512) : const Color(0x33C5A76A);
+
+    final Color orb1 = isLight
+        ? const Color(0x26C9A86C)
+        : const Color(0x4D3B82F6);
+    final Color orb2 = isLight
+        ? const Color(0x1AA67C52)
+        : const Color(0x331E40AF);
 
     return Stack(
       fit: StackFit.expand,
@@ -34,7 +41,7 @@ class MeshGradientBackground extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: base,
+              colors: baseGradient,
             ),
           ),
         ),
@@ -48,7 +55,7 @@ class MeshGradientBackground extends StatelessWidget {
               height: 260,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: haloA,
+                color: orb1,
               ),
             ),
           ),
@@ -63,7 +70,7 @@ class MeshGradientBackground extends StatelessWidget {
               height: 220,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: haloB,
+                color: orb2,
               ),
             ),
           ),

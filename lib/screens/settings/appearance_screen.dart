@@ -29,7 +29,7 @@ class AppearanceScreen extends StatelessWidget {
                   height: 44,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.primary.withOpacity(0.14),
+                    color: theme.colorScheme.primaryContainer,
                   ),
                   child: Icon(icon, color: theme.colorScheme.primary, size: 22),
                 ),
@@ -151,7 +151,7 @@ class _LivePreview extends StatelessWidget {
                   height: 48,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    color: theme.colorScheme.primary.withOpacity(0.16),
+                    color: theme.colorScheme.primaryContainer,
                   ),
                   child: Icon(Icons.send_rounded,
                       color: theme.colorScheme.primary),

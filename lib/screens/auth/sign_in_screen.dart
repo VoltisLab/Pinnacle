@@ -219,7 +219,7 @@ class _Logo extends StatelessWidget {
         height: 72,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
-          color: theme.colorScheme.primary.withOpacity(0.16),
+          color: theme.colorScheme.primaryContainer,
         ),
         child: Icon(
           Icons.send_rounded,

@@ -88,7 +88,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     height: 72,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(22),
-                      color: theme.colorScheme.primary.withOpacity(0.16),
+                      color: theme.colorScheme.primaryContainer,
                     ),
                     child: Icon(
                       Icons.person_add_alt_1_rounded,

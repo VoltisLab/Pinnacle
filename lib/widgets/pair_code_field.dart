@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../theme/app_theme.dart';
+
 /// Six single-digit fields wired together so typing auto-advances, backspace
 /// jumps back, and pasting a 6-digit code fills every slot at once.
 ///
@@ -146,27 +148,38 @@ class _PairCodeFieldState extends State<PairCodeField> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        for (var i = 0; i < widget.length; i++)
-          Flexible(
-            child: Padding(
-              padding: EdgeInsets.only(
-                right: i == widget.length - 1 ? 0 : 8,
+    const gap = 8.0;
+    const cell = 48.0;
+    final rowWidth = widget.length * cell + (widget.length - 1) * gap;
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: rowWidth.clamp(0, 360)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < widget.length; i++)
+              Padding(
+                padding: EdgeInsets.only(
+                  right: i == widget.length - 1 ? 0 : gap,
+                ),
+                child: SizedBox(
+                  width: cell,
+                  height: cell,
+                  child: _PairSlot(
+                    controller: _slots[i],
+                    focus: _focus[i],
+                    enabled: widget.enabled,
+                    autofocus: widget.autofocus && i == 0,
+                    onChanged: (v) => _onSlotChanged(i, v),
+                    onKey: (e) => _handleKey(i, e),
+                    theme: theme,
+                  ),
+                ),
               ),
-              child: _PairSlot(
-                controller: _slots[i],
-                focus: _focus[i],
-                enabled: widget.enabled,
-                autofocus: widget.autofocus && i == 0,
-                onChanged: (v) => _onSlotChanged(i, v),
-                onKey: (e) => _handleKey(i, e),
-                theme: theme,
-              ),
-            ),
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -192,53 +205,58 @@ class _PairSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = theme.brightness == Brightness.light;
+    const black = Colors.black;
+    final mutedOutline = theme.colorScheme.outlineVariant
+        .withValues(alpha: theme.brightness == Brightness.light ? 0.45 : 0.5);
+
     return Focus(
       onKeyEvent: (_, event) => onKey(event),
-      child: SizedBox(
-        height: 56,
-        child: TextField(
-          controller: controller,
-          focusNode: focus,
-          enabled: enabled,
-          autofocus: autofocus,
-          textAlign: TextAlign.center,
-          keyboardType: TextInputType.number,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-          ],
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.0,
-          ),
-          cursorWidth: 1.6,
-          decoration: InputDecoration(
-            counterText: '',
-            contentPadding: EdgeInsets.zero,
-            filled: true,
-            fillColor: theme.colorScheme.surfaceContainerHighest
-                .withOpacity(0.6),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: theme.colorScheme.outlineVariant.withOpacity(0.5),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: theme.colorScheme.primary,
-                width: 1.6,
-              ),
-            ),
-            disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: theme.colorScheme.outlineVariant.withOpacity(0.25),
-              ),
-            ),
-          ),
-          onChanged: onChanged,
+      child: TextField(
+        controller: controller,
+        focusNode: focus,
+        enabled: enabled,
+        autofocus: autofocus,
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+        ],
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.0,
         ),
+        cursorWidth: 1.6,
+        decoration: InputDecoration(
+          counterText: '',
+          contentPadding: EdgeInsets.zero,
+          filled: true,
+          fillColor: isLight
+              ? AppTheme.lightCreamMid.withValues(alpha: 0.55)
+              : theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.6),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: isLight ? black : mutedOutline,
+              width: isLight ? 1 : 1,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: isLight ? black : theme.colorScheme.primary,
+              width: 1.6,
+            ),
+          ),
+          disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: isLight ? black.withValues(alpha: 0.35) : mutedOutline,
+            ),
+          ),
+        ),
+        onChanged: onChanged,
       ),
     );
   }
