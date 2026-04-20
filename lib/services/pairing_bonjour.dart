@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:bonsoir/bonsoir.dart';
 
+import 'local_address.dart';
+
 /// Bonjour type for Pinnacle receive sessions (TXT includes `code`).
 const String pinnacleBonjourType = '_pinnacle._tcp';
 
@@ -15,16 +17,24 @@ class PairingBonjourAdvertiser {
   }) async {
     await stop();
     final code = pairCode.trim().toUpperCase();
-    final service = BonsoirService(
-      name: 'Pinnacle-$code',
-      type: pinnacleBonjourType,
-      port: port,
-      attributes: {
-        ...BonsoirService.defaultAttributes,
-        'code': code,
-      },
+    // Include our LAN IPv4 in the TXT record so senders can connect by IP
+    // (more reliable than relying on the bonjour hostname, which on Android
+    // often doesn't resolve because the OS has no mDNS resolver for raw
+    // sockets and may route bare names through a DNS search-suffix to a
+    // completely different HTTP server — yielding confusing 404s).
+    final ip = await primaryLanIPv4();
+    _broadcast = BonsoirBroadcast(
+      service: BonsoirService(
+        name: 'Pinnacle-$code',
+        type: pinnacleBonjourType,
+        port: port,
+        attributes: {
+          ...BonsoirService.defaultAttributes,
+          'code': code,
+          if (ip != null) 'ip': ip,
+        },
+      ),
     );
-    _broadcast = BonsoirBroadcast(service: service);
     await _broadcast!.initialize();
     await _broadcast!.start();
   }
@@ -70,8 +80,18 @@ Future<String?> resolveHttpBaseUrlByPairingCode(
     } else if (event is BonsoirDiscoveryServiceResolvedEvent) {
       final service = event.service;
       final c = service.attributes['code']?.trim().toUpperCase();
-      if (c == want && service.host != null && service.host!.isNotEmpty) {
-        final host = service.host!.replaceAll(RegExp(r'\.local\.?$'), '');
+      if (c != want) return;
+      // Prefer the explicit LAN IP from the TXT record — raw IPs are
+      // resolvable everywhere. Fall back to the bonjour hostname as-is
+      // (keeping any `.local` suffix so mDNS resolution still works on
+      // platforms that support it).
+      final ipAttr = service.attributes['ip']?.trim();
+      if (ipAttr != null && ipAttr.isNotEmpty) {
+        complete('http://$ipAttr:${service.port}');
+        return;
+      }
+      final host = service.host?.trim();
+      if (host != null && host.isNotEmpty) {
         complete('http://$host:${service.port}');
       }
     }

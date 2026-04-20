@@ -86,14 +86,20 @@ class TransferServer {
     _emitWaiting();
 
     Future<Response> handleRequest(Request request) async {
-      if (request.url.path == '/' && request.method == 'GET') {
+      // Note: shelf's `request.url` is relative, so `url.path` has NO leading
+      // slash ("" for root, "upload" for /upload). Comparing against "/upload"
+      // always fails and every request would fall through to 404.
+      final path = request.url.path;
+
+      if ((path == '' || path == '/') && request.method == 'GET') {
         return Response.ok(
           '{"ok":true,"app":"Pinnacle"}',
           headers: {'content-type': 'application/json'},
         );
       }
 
-      if (request.url.path == '/upload' && request.method == 'POST') {
+      if ((path == 'upload' || path == '/upload') &&
+          request.method == 'POST') {
         final form = request.formData();
         if (form == null) {
           return Response.badRequest(body: 'Expected multipart form-data');

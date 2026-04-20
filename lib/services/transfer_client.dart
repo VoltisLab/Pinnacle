@@ -54,8 +54,19 @@ class TransferClient {
     final streamed = await request.send();
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      // 404 here almost always means the sender is pointed at the wrong host
+      // (e.g. a router admin page or DNS-search-suffix mismatch), not that
+      // Pinnacle rejected the upload — surface the URL so that's obvious.
+      if (streamed.statusCode == 404) {
+        throw TransferException(
+          'Receiver not found at $uri (HTTP 404). '
+          'Make sure Pinnacle is listening on the other device and both are on the same Wi‑Fi. '
+          'Try scanning the QR again or restarting the receiver.',
+        );
+      }
+      final snippet = body.length > 200 ? '${body.substring(0, 200)}…' : body;
       throw TransferException(
-        'Upload failed (${streamed.statusCode}): $body',
+        'Upload failed (${streamed.statusCode}) at $uri: $snippet',
       );
     }
     if (onProgress != null) {
@@ -82,10 +93,12 @@ class TransferClient {
     if (!base.hasAuthority) {
       throw TransferException('Invalid address.');
     }
-    return base.replace(
+    return Uri(
+      scheme: base.scheme.isEmpty ? 'http' : base.scheme,
+      userInfo: base.userInfo.isEmpty ? null : base.userInfo,
+      host: base.host,
+      port: base.hasPort ? base.port : null,
       path: '/upload',
-      query: '',
-      fragment: '',
     );
   }
 }
