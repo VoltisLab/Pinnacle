@@ -4,7 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:permission_handler/permission_handler.dart';
+
+import '../services/camera_permission.dart';
 
 import '../services/local_address.dart';
 import '../services/pairing_bonjour.dart';
@@ -64,38 +65,48 @@ class _SendScreenState extends State<SendScreen> {
   }
 
   Future<void> _scan() async {
-    if (runningOnIosSimulator) {
+    if (!supportsCameraQrScan) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Simulator has no camera. Paste the receive link or use Find by pairing code.',
+            'No camera on this device. Paste the receive link, or enter the pairing code.',
           ),
         ),
       );
       return;
     }
 
-    var status = await Permission.camera.status;
-    if (!status.isGranted) {
-      status = await Permission.camera.request();
-    }
-    if (!status.isGranted) {
-      if (!mounted) return;
-      if (status.isPermanentlyDenied) {
-        await openAppSettings();
-        if (!mounted) return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            status.isPermanentlyDenied
-                ? 'Enable Camera for Pinnacle in Settings, then try again.'
-                : 'Camera access is needed to scan QR codes.',
+    final result = await ensureCameraPermission();
+    if (!mounted) return;
+    switch (result) {
+      case CameraPermissionResult.granted:
+        break;
+      case CameraPermissionResult.unsupported:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Camera scanning isn\'t available on this device.'),
           ),
-        ),
-      );
-      return;
+        );
+        return;
+      case CameraPermissionResult.permanentlyDenied:
+        await openCameraSettings();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Enable Camera for Pinnacle in Settings, then try again.',
+            ),
+          ),
+        );
+        return;
+      case CameraPermissionResult.denied:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Camera access is needed to scan QR codes.'),
+          ),
+        );
+        return;
     }
 
     if (!mounted) return;
@@ -420,11 +431,20 @@ class _SendScreenState extends State<SendScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _scan,
-                icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-                label: const Text('Scan QR'),
-              ),
+              if (supportsCameraQrScan)
+                OutlinedButton.icon(
+                  onPressed: _scan,
+                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+                  label: const Text('Scan QR'),
+                )
+              else
+                Text(
+                  'No camera here — paste the URL above or use a pairing code below.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withOpacity(0.55),
+                    height: 1.35,
+                  ),
+                ),
               const SizedBox(height: 22),
               Text(
                 'Pairing code',

@@ -50,3 +50,23 @@ Future<String?> primaryLanIPv4() async {
 
 bool get runningOnIosSimulator =>
     Platform.isIOS && Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
+
+/// `true` on platforms where we actually wire a camera-based QR scanner
+/// (currently Android + iOS device). On Windows / macOS / Linux and the iOS
+/// simulator the user reaches the receiver by pasting the URL or typing the
+/// pairing code instead.
+bool get supportsCameraQrScan {
+  if (runningOnIosSimulator) return false;
+  return Platform.isAndroid || Platform.isIOS;
+}
+
+/// Short human label for the current device class, used in copy like
+/// "This device (sender)" in the info sheet.
+String get deviceKindLabel {
+  if (Platform.isAndroid) return 'Android';
+  if (Platform.isIOS) return 'iPhone';
+  if (Platform.isMacOS) return 'Mac';
+  if (Platform.isWindows) return 'Windows PC';
+  if (Platform.isLinux) return 'Linux';
+  return 'this device';
+}
