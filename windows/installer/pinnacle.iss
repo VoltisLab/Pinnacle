@@ -61,7 +61,7 @@ VersionInfoVersion={#MyAppVersion}
 VersionInfoDescription={#MyAppProduct} Setup
 VersionInfoCopyright={#MyAppCopyright}
 ; Friendly info text shown in the "Ready to install" step.
-SetupIconFile=
+SetupIconFile=..\runner\resources\app_icon.ico
 ; No digital signature yet; builders can add SignTool= here once the
 ; code-signing cert is provisioned.
 
