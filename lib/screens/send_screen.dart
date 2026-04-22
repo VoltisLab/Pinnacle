@@ -28,6 +28,10 @@ bool get _isDesktop {
   return Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 }
 
+/// Step 1 of the send flow: ask for (or scan) the 6‑digit pairing code.
+/// Once a connection is established we push [SendFilesScreen] so the
+/// file‑picking / sending UI has a screen of its own — keeps each step
+/// visually focused and centered.
 class SendScreen extends StatefulWidget {
   const SendScreen({super.key});
 
@@ -37,66 +41,13 @@ class SendScreen extends StatefulWidget {
 
 class _SendScreenState extends State<SendScreen> {
   final _pairCodeCtrl = TextEditingController();
-  final List<PlatformFile> _files = [];
-
-  bool _sending = false;
   bool _resolving = false;
-  bool _connected = false;
-  bool _dragging = false;
-
-  String? _baseUrl;
-  String? _peerLabel;
-  SenderUploadProgress? _uploadProgress;
 
   @override
   void dispose() {
     _pairCodeCtrl.dispose();
-    // Courtesy disconnect if we leave with a live session.
-    if (_connected && _baseUrl != null) {
-      TransferClient.disconnect(_baseUrl!);
-    }
     super.dispose();
   }
-
-  // ─── Files ────────────────────────────────────────────────────────────
-
-  Future<void> _pickFiles({bool append = false}) async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    setState(() {
-      if (!append) _files.clear();
-      _files.addAll(result.files);
-    });
-  }
-
-  void _removeFile(PlatformFile f) {
-    setState(() => _files.remove(f));
-  }
-
-  Future<void> _addDroppedFiles(List<XFile> dropped) async {
-    if (dropped.isEmpty) return;
-    final added = <PlatformFile>[];
-    for (final f in dropped) {
-      final path = f.path;
-      if (path.isEmpty) continue;
-      int size = 0;
-      try {
-        size = await File(path).length();
-      } catch (_) {}
-      added.add(PlatformFile(
-        name: f.name.isNotEmpty ? f.name : path.split(Platform.pathSeparator).last,
-        path: path,
-        size: size,
-      ));
-    }
-    if (added.isEmpty) return;
-    setState(() => _files.addAll(added));
-  }
-
-  // ─── Scan / connect ───────────────────────────────────────────────────
 
   Future<void> _scan() async {
     if (!supportsCameraQrScan) {
@@ -110,9 +61,6 @@ class _SendScreenState extends State<SendScreen> {
       );
       return;
     }
-    // The scanner screen does its own native permission prompt, which is
-    // more reliable than pre-flighting with permission_handler (whose
-    // cached status is often stale on iOS right after the user grants).
     final raw = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const QrScanScreen()),
     );
@@ -198,11 +146,6 @@ class _SendScreenState extends State<SendScreen> {
         ),
       );
       if (!mounted) return;
-      setState(() {
-        _baseUrl = baseUrl;
-        _peerLabel = label;
-        _connected = true;
-      });
       _safeHaptic();
       // Celebrate! The receiver is showing its own tick right now too.
       unawaitedShow(
@@ -212,6 +155,21 @@ class _SendScreenState extends State<SendScreen> {
           subtitle: 'You\'re linked to $label. Pick files and send.',
         ),
       );
+      // Small delay so the tick is visible before we swap screens.
+      await Future<void>.delayed(const Duration(milliseconds: 320));
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => SendFilesScreen(
+            baseUrl: baseUrl,
+            peerLabel: label,
+          ),
+        ),
+      );
+      if (!mounted) return;
+      // We're back on the pairing screen — clear the code so the next
+      // connect attempt starts from a clean slate.
+      _pairCodeCtrl.clear();
     } on TransferException catch (e) {
       if (!mounted) return;
       await _showConnectError(e.message);
@@ -223,7 +181,184 @@ class _SendScreenState extends State<SendScreen> {
     }
   }
 
-  Future<void> _disconnect() async {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return MeshGradientBackground(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Send')),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        color: theme.colorScheme.primaryContainer,
+                      ),
+                      child: Icon(
+                        Icons.link_rounded,
+                        size: 30,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Enter pairing code',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Type the 6‑digit code from the receiver, then Connect. '
+                      'Both devices need to be on the same Wi‑Fi.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.65),
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    PairCodeField(
+                      controller: _pairCodeCtrl,
+                      enabled: !_resolving,
+                      onCompleted: (_) => _connectFromPairingCode(),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        if (supportsCameraQrScan)
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _resolving ? null : _scan,
+                              icon: const Icon(
+                                Icons.qr_code_scanner_rounded,
+                                size: 20,
+                              ),
+                              label: const Text('Scan QR'),
+                            ),
+                          ),
+                        if (supportsCameraQrScan) const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            style: _sendLightTanControlStyle(context),
+                            onPressed:
+                                _resolving ? null : _connectFromPairingCode,
+                            child: _resolving
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: theme.brightness == Brightness.light
+                                          ? AppTheme.lightCreamCanvas
+                                          : theme.colorScheme.primary,
+                                    ),
+                                  )
+                                : const Text('Connect'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Step 2 of the send flow: we're already connected to a receiver. Pick
+/// files (or drag them in on desktop) and send. Disconnects on back /
+/// disconnect button.
+class SendFilesScreen extends StatefulWidget {
+  const SendFilesScreen({
+    super.key,
+    required this.baseUrl,
+    required this.peerLabel,
+  });
+
+  final String baseUrl;
+  final String peerLabel;
+
+  @override
+  State<SendFilesScreen> createState() => _SendFilesScreenState();
+}
+
+class _SendFilesScreenState extends State<SendFilesScreen> {
+  final List<PlatformFile> _files = [];
+
+  bool _sending = false;
+  bool _dragging = false;
+  bool _disconnected = false;
+
+  SenderUploadProgress? _uploadProgress;
+
+  @override
+  void dispose() {
+    // Courtesy disconnect if the user leaves with a live session without
+    // having explicitly tapped "Disconnect".
+    if (!_disconnected) {
+      TransferClient.disconnect(widget.baseUrl);
+    }
+    super.dispose();
+  }
+
+  // ─── Files ────────────────────────────────────────────────────────────
+
+  Future<void> _pickFiles({bool append = false}) async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() {
+      if (!append) _files.clear();
+      _files.addAll(result.files);
+    });
+  }
+
+  void _removeFile(PlatformFile f) {
+    setState(() => _files.remove(f));
+  }
+
+  Future<void> _addDroppedFiles(List<XFile> dropped) async {
+    if (dropped.isEmpty) return;
+    final added = <PlatformFile>[];
+    for (final f in dropped) {
+      final path = f.path;
+      if (path.isEmpty) continue;
+      int size = 0;
+      try {
+        size = await File(path).length();
+      } catch (_) {}
+      added.add(PlatformFile(
+        name: f.name.isNotEmpty ? f.name : path.split(Platform.pathSeparator).last,
+        path: path,
+        size: size,
+      ));
+    }
+    if (added.isEmpty) return;
+    setState(() => _files.addAll(added));
+  }
+
+  // ─── Disconnect ───────────────────────────────────────────────────────
+
+  Future<bool> _confirmDisconnect() async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -243,30 +378,34 @@ class _SendScreenState extends State<SendScreen> {
         ],
       ),
     );
-    if (confirm != true) return;
-    final url = _baseUrl;
-    if (url != null) {
-      await TransferClient.disconnect(url);
-    }
+    return confirm == true;
+  }
+
+  Future<void> _disconnectAndLeave() async {
+    if (_sending) return;
+    if (!await _confirmDisconnect()) return;
+    await _performDisconnect();
     if (!mounted) return;
-    _safeHaptic();
-    setState(() {
-      _connected = false;
-      _baseUrl = null;
-      _peerLabel = null;
-      _pairCodeCtrl.clear();
-    });
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _performDisconnect() async {
+    if (_disconnected) return;
+    _disconnected = true;
+    try {
+      await TransferClient.disconnect(widget.baseUrl);
+    } catch (_) {
+      // Best effort — the receiver will time us out anyway.
+    }
+    if (mounted) _safeHaptic();
   }
 
   // ─── Send ─────────────────────────────────────────────────────────────
 
   Future<void> _sendAll() async {
-    final base = _baseUrl;
-    if (base == null || !_connected) {
+    if (_disconnected) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connect to a receiver first.'),
-        ),
+        const SnackBar(content: Text('Not connected any more.')),
       );
       return;
     }
@@ -301,7 +440,8 @@ class _SendScreenState extends State<SendScreen> {
         final f = _files[i];
         final path = f.path;
         if (path == null) {
-          throw TransferException('Could not read "${f.name}" (try picking again).');
+          throw TransferException(
+              'Could not read "${f.name}" (try picking again).');
         }
         var total = perFileBytes[i];
         if (total <= 0) total = 1;
@@ -323,7 +463,7 @@ class _SendScreenState extends State<SendScreen> {
           bytesPerSecond: 0,
         ));
         await TransferClient.sendFile(
-          base,
+          widget.baseUrl,
           path,
           sessionTotalBytes: sessionTotal > 0 ? sessionTotal : null,
           sessionBytesBeforeThisFile: sessionOffset,
@@ -381,110 +521,98 @@ class _SendScreenState extends State<SendScreen> {
     final theme = Theme.of(context);
     final fmt = NumberFormat.decimalPattern();
 
-    final body = SafeArea(
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-                  children: [
-                    _FilesHeader(
-                      hasFiles: _files.isNotEmpty,
-                      onAddMore: () => _pickFiles(append: true),
-                    ),
-                    const SizedBox(height: 8),
-                    _FilesSection(
-                      theme: theme,
-                      files: _files,
-                      onPick: () => _pickFiles(),
-                      onRemove: _removeFile,
-                      fmt: fmt,
-                      showDropHint: _isDesktop,
-                      isDragging: _dragging,
-                    ),
-                    const SizedBox(height: 20),
-                    if (_connected)
-                      _ConnectedPanel(
-                        peerLabel: _peerLabel,
-                        baseUrl: _baseUrl,
-                        onDisconnect: _sending ? null : _disconnect,
-                      ),
-                    const SizedBox(height: 12),
-                    if (_uploadProgress != null)
-                      SenderUploadBanner(progress: _uploadProgress!),
-                  ],
-                ),
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(
-                      color: theme.colorScheme.outline.withValues(alpha: 0.22),
-                    ),
+    final content = Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                children: [
+                  _ConnectedPanel(
+                    peerLabel: widget.peerLabel,
+                    baseUrl: widget.baseUrl,
+                    onDisconnect: _sending ? null : _disconnectAndLeave,
                   ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!_connected) ...[
-                        _PairPanel(
-                          pairCtrl: _pairCodeCtrl,
-                          resolving: _resolving,
-                          onConnect: _connectFromPairingCode,
-                          onScan: _scan,
-                          onCompleted: (_) => _connectFromPairingCode(),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      FilledButton(
-                        onPressed: (_sending || !_connected || _files.isEmpty)
-                            ? null
-                            : _sendAll,
-                        child: _sending
-                            ? SizedBox(
-                                height: 22,
-                                width: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: theme.colorScheme.onPrimary,
-                                ),
-                              )
-                            : Text(_connected ? 'Send files' : 'Connect first'),
-                      ),
-                    ],
+                  const SizedBox(height: 18),
+                  _FilesHeader(
+                    hasFiles: _files.isNotEmpty,
+                    onAddMore: () => _pickFiles(append: true),
+                  ),
+                  const SizedBox(height: 8),
+                  _FilesSection(
+                    theme: theme,
+                    files: _files,
+                    onPick: () => _pickFiles(),
+                    onRemove: _removeFile,
+                    fmt: fmt,
+                    showDropHint: _isDesktop,
+                    isDragging: _dragging,
+                  ),
+                  const SizedBox(height: 16),
+                  if (_uploadProgress != null)
+                    SenderUploadBanner(progress: _uploadProgress!),
+                ],
+              ),
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: theme.colorScheme.outline.withValues(alpha: 0.22),
                   ),
                 ),
               ),
-            ],
-          ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                child: FilledButton(
+                  onPressed:
+                      (_sending || _files.isEmpty) ? null : _sendAll,
+                  child: _sending
+                      ? SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: theme.colorScheme.onPrimary,
+                          ),
+                        )
+                      : const Text('Send files'),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
 
-    return MeshGradientBackground(
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Send'),
+    return PopScope(
+      canPop: !_sending,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) return;
+        unawaitedShow(_performDisconnect());
+      },
+      child: MeshGradientBackground(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Send files'),
+          ),
+          body: SafeArea(
+            child: _isDesktop
+                ? DropTarget(
+                    onDragEntered: (_) => setState(() => _dragging = true),
+                    onDragExited: (_) => setState(() => _dragging = false),
+                    onDragDone: (details) async {
+                      setState(() => _dragging = false);
+                      await _addDroppedFiles(details.files);
+                    },
+                    child: content,
+                  )
+                : content,
+          ),
         ),
-        body: _isDesktop
-            ? DropTarget(
-                onDragEntered: (_) => setState(() => _dragging = true),
-                onDragExited: (_) => setState(() => _dragging = false),
-                onDragDone: (details) async {
-                  setState(() => _dragging = false);
-                  await _addDroppedFiles(details.files);
-                },
-                child: body,
-              )
-            : body,
       ),
     );
   }
@@ -720,84 +848,6 @@ class _FilePickerCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _PairPanel extends StatelessWidget {
-  const _PairPanel({
-    required this.pairCtrl,
-    required this.resolving,
-    required this.onConnect,
-    required this.onScan,
-    required this.onCompleted,
-  });
-
-  final TextEditingController pairCtrl;
-  final bool resolving;
-  final VoidCallback onConnect;
-  final VoidCallback onScan;
-  final ValueChanged<String> onCompleted;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Pairing code',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Enter the 6-digit code from the receiver, then Connect. Same Wi‑Fi on both devices.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withOpacity(0.62),
-            height: 1.35,
-          ),
-        ),
-        const SizedBox(height: 14),
-        PairCodeField(
-          controller: pairCtrl,
-          enabled: !resolving,
-          onCompleted: onCompleted,
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            if (supportsCameraQrScan)
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: resolving ? null : onScan,
-                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-                  label: const Text('Scan QR'),
-                ),
-              ),
-            if (supportsCameraQrScan) const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton.tonal(
-                style: _sendLightTanControlStyle(context),
-                onPressed: resolving ? null : onConnect,
-                child: resolving
-                    ? SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: theme.brightness == Brightness.light
-                              ? AppTheme.lightCreamCanvas
-                              : theme.colorScheme.primary,
-                        ),
-                      )
-                    : const Text('Connect'),
-              ),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }
