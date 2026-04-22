@@ -190,19 +190,17 @@ class _SendScreenState extends State<SendScreen> {
       child: Scaffold(
         appBar: AppBar(title: const Text('Send')),
         body: SafeArea(
-          // SingleChildScrollView gives the child an *unbounded* max height,
-          // so Center + minHeight never truly centres — content drifts (often
-          // toward the bottom on desktop). SliverFillRemaining with
-          // hasScrollBody: false allocates exactly the viewport minus the app
-          // bar and centres the block in that region.
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                  child: Center(
+          // A plain CustomScrollView / SliverFillRemaining still mis-centred on
+          // some desktop embedders. The reliable pattern is: give the body a
+          // *bounded* height with [Expanded], then [Center] the scrollable
+          // column inside that region — equal slack above and below the block.
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 420),
                       child: Column(
