@@ -190,98 +190,106 @@ class _SendScreenState extends State<SendScreen> {
       child: Scaffold(
         appBar: AppBar(title: const Text('Send')),
         body: SafeArea(
-          // LayoutBuilder + minHeight lets the Column stay vertically
-          // centered when it fits, and fall back to scrolling when the
-          // viewport is short (small phones, keyboard up, etc).
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        color: theme.colorScheme.primaryContainer,
-                      ),
-                      child: Icon(
-                        Icons.link_rounded,
-                        size: 30,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'Enter pairing code',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Type the 6‑digit code from the receiver, then Connect. '
-                      'Both devices need to be on the same Wi‑Fi.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.65),
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    PairCodeField(
-                      controller: _pairCodeCtrl,
-                      enabled: !_resolving,
-                      onCompleted: (_) => _connectFromPairingCode(),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        if (supportsCameraQrScan)
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _resolving ? null : _scan,
-                              icon: const Icon(
-                                Icons.qr_code_scanner_rounded,
-                                size: 20,
-                              ),
-                              label: const Text('Scan QR'),
+          // SingleChildScrollView gives the child an *unbounded* max height,
+          // so Center + minHeight never truly centres — content drifts (often
+          // toward the bottom on desktop). SliverFillRemaining with
+          // hasScrollBody: false allocates exactly the viewport minus the app
+          // bar and centres the block in that region.
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(18),
+                              color: theme.colorScheme.primaryContainer,
+                            ),
+                            child: Icon(
+                              Icons.link_rounded,
+                              size: 30,
+                              color: theme.colorScheme.primary,
                             ),
                           ),
-                        if (supportsCameraQrScan) const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed:
-                                _resolving ? null : _connectFromPairingCode,
-                            child: _resolving
-                                ? SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: theme.colorScheme.onPrimary,
-                                    ),
-                                  )
-                                : const Text('Connect'),
+                          const SizedBox(height: 18),
+                          Text(
+                            'Enter pairing code',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                      ],
+                          const SizedBox(height: 8),
+                          Text(
+                            'Type the 6‑digit code from the receiver, then Connect. '
+                            'Both devices need to be on the same Wi‑Fi.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withOpacity(0.65),
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                          PairCodeField(
+                            controller: _pairCodeCtrl,
+                            enabled: !_resolving,
+                            onCompleted: (_) => _connectFromPairingCode(),
+                          ),
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              if (supportsCameraQrScan)
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: _resolving ? null : _scan,
+                                    icon: const Icon(
+                                      Icons.qr_code_scanner_rounded,
+                                      size: 20,
+                                    ),
+                                    label: const Text('Scan QR'),
+                                  ),
+                                ),
+                              if (supportsCameraQrScan)
+                                const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: _resolving
+                                      ? null
+                                      : _connectFromPairingCode,
+                                  child: _resolving
+                                      ? SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: theme
+                                                .colorScheme.onPrimary,
+                                          ),
+                                        )
+                                      : const Text('Connect'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
