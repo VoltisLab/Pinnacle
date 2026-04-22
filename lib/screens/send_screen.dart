@@ -259,7 +259,6 @@ class _SendScreenState extends State<SendScreen> {
                         if (supportsCameraQrScan) const SizedBox(width: 10),
                         Expanded(
                           child: FilledButton(
-                            style: _sendLightTanControlStyle(context),
                             onPressed:
                                 _resolving ? null : _connectFromPairingCode,
                             child: _resolving
@@ -268,9 +267,7 @@ class _SendScreenState extends State<SendScreen> {
                                     height: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: theme.brightness == Brightness.light
-                                          ? AppTheme.lightCreamCanvas
-                                          : theme.colorScheme.primary,
+                                      color: theme.colorScheme.onPrimary,
                                     ),
                                   )
                                 : const Text('Connect'),
@@ -641,16 +638,6 @@ void _safeHaptic() {
   HapticFeedback.mediumImpact().catchError((_) {});
 }
 
-/// Tan filled controls on the warm cream canvas (light mode only).
-ButtonStyle? _sendLightTanControlStyle(BuildContext context) {
-  if (Theme.of(context).brightness != Brightness.light) return null;
-  return FilledButton.styleFrom(
-    backgroundColor: AppTheme.lightWarmTan,
-    foregroundColor: AppTheme.lightCreamCanvas,
-    iconColor: AppTheme.lightCreamCanvas,
-  );
-}
-
 class _FilesHeader extends StatelessWidget {
   const _FilesHeader({required this.hasFiles, required this.onAddMore});
 
@@ -847,7 +834,6 @@ class _FilePickerCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 FilledButton.tonalIcon(
-                  style: _sendLightTanControlStyle(context),
                   onPressed: onTap,
                   icon: const Icon(Icons.folder_open_rounded, size: 20),
                   label: const Text('Choose files'),
