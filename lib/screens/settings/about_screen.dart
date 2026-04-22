@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../widgets/mesh_gradient_background.dart';
+import 'privacy_screen.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -54,9 +55,15 @@ class AboutScreen extends StatelessWidget {
                 children: [
                   ListTile(
                     leading: const Icon(Icons.shield_rounded),
-                    title: const Text('Privacy'),
+                    title: const Text('Privacy Policy'),
                     subtitle: const Text(
                       'Files move directly between your devices on the local network.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const PrivacyScreen(),
+                      ),
                     ),
                   ),
                   const Divider(height: 0),

@@ -57,8 +57,8 @@ class WindowScreen extends StatelessWidget {
                 ),
                 title: const Text('Window size'),
                 subtitle: const Text(
-                  'Fixed 720 × 720 square — keeps the UI tidy and avoids '
-                  'awkward aspect ratios.',
+                  'Fixed 720 × 880 — sized so Send and Receive pages fit '
+                  'without scrolling.',
                 ),
               ),
             ),

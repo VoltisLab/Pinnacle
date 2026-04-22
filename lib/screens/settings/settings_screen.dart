@@ -9,6 +9,7 @@ import 'about_screen.dart';
 import 'account_screen.dart';
 import 'appearance_screen.dart';
 import 'notifications_screen.dart';
+import 'privacy_screen.dart';
 import 'save_location_screen.dart';
 import 'window_screen.dart';
 
@@ -71,6 +72,14 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => _push(context, const WindowScreen()),
               ),
             ],
+            const SizedBox(height: 18),
+            const _SectionHeader(title: 'Legal'),
+            _SettingsTile(
+              icon: Icons.shield_rounded,
+              title: 'Privacy Policy',
+              subtitle: 'How Pinnacle handles your files and data',
+              onTap: () => _push(context, const PrivacyScreen()),
+            ),
             const SizedBox(height: 18),
             const _SectionHeader(title: 'About'),
             _SettingsTile(

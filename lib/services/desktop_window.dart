@@ -11,9 +11,10 @@ bool get isDesktop {
   return Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 }
 
-/// Applies our fixed-square desktop window policy:
-///   * 720 × 720 (slightly taller than wide feels cramped; square is
-///     what the user asked for and matches the app's content density).
+/// Applies our fixed desktop window policy:
+///   * 720 × 880 (a touch taller than wide so the Send / Receive pages
+///     fit their content without needing to scroll — previous 720×720
+///     clipped the bottom of both).
 ///   * Non-resizable (min == max == size) so the UI never has to worry
 ///     about extreme aspect ratios.
 ///   * Centered on the primary screen at first launch.
@@ -24,7 +25,7 @@ Future<void> applyDesktopWindowPolicy({
 }) async {
   if (!isDesktop) return;
   await windowManager.ensureInitialized();
-  const size = Size(720, 720);
+  const size = Size(720, 880);
   final opts = WindowOptions(
     size: size,
     minimumSize: size,
