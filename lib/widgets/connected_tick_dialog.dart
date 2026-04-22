@@ -52,7 +52,13 @@ class _ConnectedTickDialogState extends State<ConnectedTickDialog>
     _anim.forward();
     _dismissTimer = Timer(widget.autoDismissAfter, () {
       if (!mounted) return;
-      Navigator.of(context).maybePop();
+      // Only pop when *this* dialog route is still the active one. If a
+      // caller mistakenly pushed another screen on top while we were
+      // showing, maybePop() would remove that screen instead of us.
+      final route = ModalRoute.of(context);
+      if (route?.isCurrent == true) {
+        Navigator.of(context).pop();
+      }
     });
   }
 

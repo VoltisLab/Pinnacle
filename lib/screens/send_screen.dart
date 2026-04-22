@@ -147,16 +147,17 @@ class _SendScreenState extends State<SendScreen> {
       );
       if (!mounted) return;
       _safeHaptic();
-      // Celebrate! The receiver is showing its own tick right now too.
-      unawaitedShow(
-        ConnectedTickDialog.show(
-          context,
-          title: 'Connected',
-          subtitle: 'You\'re linked to $label. Pick files and send.',
-        ),
+      // Celebrate on this route first, **await** until the dialog fully
+      // dismisses, then push Send files. If we push while the dialog is
+      // still on the stack, its auto-dismiss timer calls maybePop() and
+      // accidentally pops SendFilesScreen (top route) — user lands back on
+      // the pairing screen with a stuck modal barrier and no taps.
+      await ConnectedTickDialog.show(
+        context,
+        title: 'Connected',
+        subtitle: 'You\'re linked to $label. Pick files and send.',
+        autoDismissAfter: const Duration(milliseconds: 900),
       );
-      // Small delay so the tick is visible before we swap screens.
-      await Future<void>.delayed(const Duration(milliseconds: 320));
       if (!mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
