@@ -189,15 +189,22 @@ class _SendScreenState extends State<SendScreen> {
       child: Scaffold(
         appBar: AppBar(title: const Text('Send')),
         body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
+          // LayoutBuilder + minHeight lets the Column stay vertically
+          // centered when it fits, and fall back to scrolling when the
+          // viewport is short (small phones, keyboard up, etc).
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
                     Container(
                       width: 64,
                       height: 64,
@@ -271,7 +278,9 @@ class _SendScreenState extends State<SendScreen> {
                         ),
                       ],
                     ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
