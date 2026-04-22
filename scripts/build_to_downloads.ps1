@@ -31,6 +31,24 @@ $apkDst = Join-Path $downloads 'Pinnacle-release.apk'
 Copy-Item -LiteralPath $apkSrc -Destination $apkDst -Force
 Write-Host "    $apkDst" -ForegroundColor Green
 
+$adb = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+if (Test-Path $adb) {
+    $dev = & $adb devices 2>&1 | Where-Object { $_ -match "`tdevice`$" }
+    if ($dev) {
+        Write-Host "==> Installing APK via adb (device connected)..." -ForegroundColor Cyan
+        & $adb install -r $apkDst
+        & $adb shell monkey -p com.pinnacle.transfer.pinnacle -c android.intent.category.LAUNCHER 1
+        Write-Host "    Launched on device." -ForegroundColor Green
+    } else {
+        Write-Host "==> No adb device — copy $apkDst to the phone or connect USB / wireless debugging, then:" -ForegroundColor Yellow
+        Write-Host "    adb install -r `"$apkDst`"" -ForegroundColor Yellow
+        Write-Host "    If install fails with 'signatures do not match', uninstall the old app first:" -ForegroundColor Yellow
+        Write-Host "    adb uninstall com.pinnacle.transfer.pinnacle" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "==> adb.exe not found — skipped phone install." -ForegroundColor Yellow
+}
+
 Write-Host "==> Windows (release)..." -ForegroundColor Cyan
 Get-Process -Name Pinnacle -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 400

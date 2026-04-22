@@ -4,10 +4,16 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <application
-        android:label="pinnacle"
+        android:label="Pinnacle Transfer"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
+        <!-- Skia + OpenGLES is more reliable on some Motorola / Mali GPUs than
+             Impeller + Vulkan (users sometimes see a black screen or instant
+             close with no obvious crash). -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
