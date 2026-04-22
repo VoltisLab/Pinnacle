@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Warm parchment light theme; deep, calm surfaces at night.
@@ -94,6 +95,12 @@ abstract final class AppTheme {
     );
 
     final isLight = brightness == Brightness.light;
+    final isDesktop = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux);
+    final buttonMinHeight = isDesktop ? 48.0 : 44.0;
+    final buttonVerticalPadding = isDesktop ? 16.0 : 14.0;
     final border = scheme.outline.withValues(alpha: isLight ? 0.55 : 0.65);
 
     return base.copyWith(
@@ -123,7 +130,8 @@ abstract final class AppTheme {
         style: FilledButton.styleFrom(
           foregroundColor: scheme.onPrimary,
           backgroundColor: scheme.primary,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+          minimumSize: Size(0, buttonMinHeight),
+          padding: EdgeInsets.symmetric(horizontal: 22, vertical: buttonVerticalPadding),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           textStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
         ),
@@ -132,7 +140,8 @@ abstract final class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: scheme.primary,
           side: BorderSide(color: scheme.primary.withValues(alpha: isLight ? 0.45 : 0.55)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          minimumSize: Size(0, buttonMinHeight),
+          padding: EdgeInsets.symmetric(horizontal: 20, vertical: buttonVerticalPadding),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
