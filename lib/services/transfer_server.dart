@@ -28,6 +28,11 @@ class TransferServer {
   final ValueNotifier<ReceiverTransferUi> receiveUi =
       ValueNotifier(const ReceiverWaitingConnection());
 
+  /// Last successfully published file (receiver). Cleared when back to
+  /// [ReceiverWaitingConnection]. Used for "Open folder" on the Receive UI.
+  final ValueNotifier<PublishedFile?> lastPublishedFile =
+      ValueNotifier(null);
+
   int get port => _httpServer?.port ?? 0;
 
   bool get isRunning => _httpServer != null;
@@ -46,6 +51,15 @@ class TransferServer {
   void _publish(ReceiverTransferUi next) {
     scheduleMicrotask(() {
       receiveUi.value = next;
+      if (next is ReceiverWaitingConnection) {
+        lastPublishedFile.value = null;
+      }
+    });
+  }
+
+  void _rememberPublished(PublishedFile file) {
+    scheduleMicrotask(() {
+      lastPublishedFile.value = file;
     });
   }
 
@@ -250,12 +264,13 @@ class TransferServer {
         }
 
         try {
-          await SharedStorage.publishReceivedFile(
+          final published = await SharedStorage.publishReceivedFile(
             sourcePath: scratch.path,
             displayName: name,
             mimeType: mime,
             folder: saveFolderName,
           );
+          _rememberPublished(published);
         } catch (e, st) {
           debugPrint('Pinnacle publish error: $e\n$st');
         }
@@ -336,12 +351,13 @@ class TransferServer {
             }
             bytesThisRequest += partBytes;
             try {
-              await SharedStorage.publishReceivedFile(
+              final published = await SharedStorage.publishReceivedFile(
                 sourcePath: scratch.path,
                 displayName: name,
                 mimeType: mime,
                 folder: saveFolderName,
               );
+              _rememberPublished(published);
             } catch (e, st) {
               debugPrint('Pinnacle publish error: $e\n$st');
             }

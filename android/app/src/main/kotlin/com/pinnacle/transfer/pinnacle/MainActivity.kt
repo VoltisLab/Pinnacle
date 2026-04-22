@@ -1,6 +1,8 @@
 package com.pinnacle.transfer.pinnacle
 
+import android.app.DownloadManager
 import android.content.ContentValues
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -53,6 +55,45 @@ class MainActivity : FlutterActivity() {
                             call.argument<String>("folder") ?: "Pinnacle",
                         )
                         result.success("Downloads / $folder")
+                    }
+                    "openReceivedLocation" -> {
+                        val uriStr = call.argument<String>("uri")
+                        val mime = call.argument<String>("mime")
+                            ?: "application/octet-stream"
+                        try {
+                            if (!uriStr.isNullOrEmpty()) {
+                                val u = Uri.parse(uriStr)
+                                val viewTyped = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(u, mime)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                try {
+                                    startActivity(viewTyped)
+                                    result.success(true)
+                                    return@setMethodCallHandler
+                                } catch (_: Exception) {
+                                    // Try without strict MIME (some Files builds are picky).
+                                }
+                                val viewLoose = Intent(Intent.ACTION_VIEW).apply {
+                                    setData(u)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                try {
+                                    startActivity(viewLoose)
+                                    result.success(true)
+                                    return@setMethodCallHandler
+                                } catch (_: Exception) {
+                                }
+                            }
+                            val dm = Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
+                            dm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(dm)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("OPEN", e.message, null)
+                        }
                     }
                     else -> result.notImplemented()
                 }

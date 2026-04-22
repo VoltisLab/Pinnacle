@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../models/transfer_ui_state.dart';
 import '../services/local_address.dart';
 import '../services/pairing_bonjour.dart';
 import '../services/pinnacle_pairing_uri.dart';
-import '../models/transfer_ui_state.dart';
+import '../services/receive_location_opener.dart';
+import '../services/shared_storage.dart';
 import '../services/transfer_server.dart';
 import '../widgets/mesh_gradient_background.dart';
 import '../widgets/transfer_progress_cards.dart';
@@ -31,8 +33,9 @@ class _ReceiveScreenState extends State<ReceiveScreen>
   String _pairCode = '';
   String? _savePathLabel;
   late final AnimationController _waitTurn;
-  /// After the first inbound bytes for this listen session, hide the QR (pairing code stays).
-  bool _hideQrForSession = false;
+  /// After a sender connects (handshake or first bytes), hide QR, pairing
+  /// code, link, and copy actions — only status / transfer UI remains.
+  bool _hidePairingUi = false;
   bool _hapticArmedForSession = true;
 
   @override
@@ -60,8 +63,8 @@ class _ReceiveScreenState extends State<ReceiveScreen>
         _hapticArmedForSession = false;
         _safeHaptic();
       }
-      if (!_hideQrForSession) {
-        setState(() => _hideQrForSession = true);
+      if (!_hidePairingUi) {
+        setState(() => _hidePairingUi = true);
       }
     }
   }
@@ -121,7 +124,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
         _httpUrl = null;
         _qrPayload = null;
         _pairCode = '';
-        _hideQrForSession = false;
+        _hidePairingUi = false;
         _hapticArmedForSession = true;
       });
       _syncWaitRotation();
@@ -147,7 +150,7 @@ class _ReceiveScreenState extends State<ReceiveScreen>
         _pairCode = code;
         _savePathLabel = label;
         _busy = false;
-        _hideQrForSession = false;
+        _hidePairingUi = false;
         _hapticArmedForSession = true;
       });
       _syncWaitRotation();
@@ -190,6 +193,21 @@ class _ReceiveScreenState extends State<ReceiveScreen>
 
   Future<void> _disconnect() => _stopReceiving();
 
+  Future<void> _openSavedLocation(
+    BuildContext context,
+    PublishedFile file,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ReceiveLocationOpener.openFromPublished(file);
+    } catch (e) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not open folder: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -220,11 +238,13 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  listening
-                      ? 'Share the pairing code with the sender. The QR hides when a sender connects.'
-                      : starting
+                  !listening
+                      ? (starting
                           ? 'Turning on your hotspot URL and pairing code.'
-                          : _idleSaveLocationHint(),
+                          : _idleSaveLocationHint())
+                      : _hidePairingUi
+                          ? 'A sender is linked — pairing code and QR are hidden. Files save to the location below.'
+                          : 'Share the pairing code or QR with the sender. Both hide automatically once they connect.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.65),
                     height: 1.4,
@@ -281,18 +301,19 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                                     },
                                   ),
                                   Expanded(
-                                    child: SingleChildScrollView(
-                                      child: _ReceivePanel(
-                                        theme: theme,
-                                        qrPayload: _qrPayload!,
-                                        httpUrl: _httpUrl,
-                                        pairCode: _pairCode,
-                                        onCopyUrl: _copyUrl,
-                                        onCopyCode: _copyCode,
-                                        showQr: !_hideQrForSession,
-                                        qrSize: 188,
-                                      ),
-                                    ),
+                                    child: _hidePairingUi
+                                        ? const SizedBox.expand()
+                                        : SingleChildScrollView(
+                                            child: _ReceivePanel(
+                                              theme: theme,
+                                              qrPayload: _qrPayload!,
+                                              httpUrl: _httpUrl,
+                                              pairCode: _pairCode,
+                                              onCopyUrl: _copyUrl,
+                                              onCopyCode: _copyCode,
+                                              qrSize: 188,
+                                            ),
+                                          ),
                                   ),
                                 ],
                               ),
@@ -301,12 +322,41 @@ class _ReceiveScreenState extends State<ReceiveScreen>
                 if (_savePathLabel != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      'Save location\n${_savePathLabel!}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.45),
-                        height: 1.35,
-                      ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Save location\n${_savePathLabel!}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withOpacity(0.45),
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                        ValueListenableBuilder<PublishedFile?>(
+                          valueListenable: _server.lastPublishedFile,
+                          builder: (context, published, _) {
+                            if (published == null) {
+                              return const SizedBox.shrink();
+                            }
+                            return TextButton.icon(
+                              onPressed: () =>
+                                  _openSavedLocation(context, published),
+                              icon: const Icon(
+                                Icons.folder_open_rounded,
+                                size: 20,
+                              ),
+                              label: const Text('Open folder'),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
                 if (listening)
@@ -367,7 +417,6 @@ class _ReceivePanel extends StatelessWidget {
     required this.pairCode,
     required this.onCopyUrl,
     required this.onCopyCode,
-    this.showQr = true,
     this.qrSize = 220,
   });
 
@@ -377,7 +426,6 @@ class _ReceivePanel extends StatelessWidget {
   final String pairCode;
   final VoidCallback onCopyUrl;
   final VoidCallback onCopyCode;
-  final bool showQr;
   final double qrSize;
 
   @override
@@ -385,47 +433,29 @@ class _ReceivePanel extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showQr) ...[
-          Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: QrImageView(
-                data: qrPayload,
-                version: QrVersions.auto,
-                gapless: true,
-                size: qrSize,
-                eyeStyle: QrEyeStyle(
-                  eyeShape: QrEyeShape.square,
-                  color: theme.colorScheme.onSurface,
-                ),
-                dataModuleStyle: QrDataModuleStyle(
-                  dataModuleShape: QrDataModuleShape.square,
-                  color: theme.colorScheme.onSurface,
-                ),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: QrImageView(
+              data: qrPayload,
+              version: QrVersions.auto,
+              gapless: true,
+              size: qrSize,
+              eyeStyle: QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: theme.colorScheme.onSurface,
+              ),
+              dataModuleStyle: QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: theme.colorScheme.onSurface,
               ),
             ),
           ),
-          const SizedBox(height: 16),
-        ] else ...[
-            Icon(
-              Icons.wifi_tethering_rounded,
-              size: 48,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Connected — share the pairing code if the sender still needs it.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withOpacity(0.7),
-                height: 1.35,
-              ),
-            ),
-            const SizedBox(height: 16),
-        ],
+        ),
+        const SizedBox(height: 16),
         if (httpUrl != null)
           SelectableText(
             httpUrl!,

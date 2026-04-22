@@ -1,7 +1,7 @@
 name: pinnacle
 description: Pinnacle — simple, elegant wireless file transfer for iPhone, Android, macOS, and Windows.
 publish_to: "none"
-version: 1.0.0+6
+version: 1.0.0+7
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -28,6 +28,7 @@ dependencies:
   desktop_drop: ^0.7.1
   window_manager: ^0.5.1
   cross_file: ^0.3.5+2
+  open_file: ^3.5.10
 
 dev_dependencies:
   flutter_test:
