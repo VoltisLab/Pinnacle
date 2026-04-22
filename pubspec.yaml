@@ -1,7 +1,7 @@
 name: pinnacle
 description: Pinnacle — simple, elegant wireless file transfer for iPhone, Android, macOS, and Windows.
 publish_to: "none"
-version: 1.0.0+9
+version: 1.0.0+10
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -34,6 +34,17 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+
+# Regenerate with: dart run flutter_launcher_icons
+# Source matches iOS marketing icon (Android/Windows were still default Flutter).
+flutter_launcher_icons:
+  image_path: "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  windows:
+    generate: true
