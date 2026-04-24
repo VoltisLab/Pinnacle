@@ -38,9 +38,9 @@ Future<void> applyDesktopWindowPolicy({
   await windowManager.waitUntilReadyToShow(opts, () async {
     await windowManager.setResizable(false);
     await windowManager.setMaximizable(false);
-    if (alwaysOnTop) {
-      await windowManager.setAlwaysOnTop(true);
-    }
+    // Set explicitly on every launch; Windows in particular needs a clear
+    // false to leave “topmost” when the user has turned the option off.
+    await windowManager.setAlwaysOnTop(alwaysOnTop);
     await windowManager.show();
     await windowManager.focus();
   });
